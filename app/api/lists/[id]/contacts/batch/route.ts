@@ -3,6 +3,9 @@ import { getSession } from '@/lib/auth'
 import sql from '@/lib/db'
 import { ok, error, unauthorized, notFound } from '@/lib/api'
 
+// Vercel Pro/Enterprise: max allowed execution time = 300s (5 min)
+export const maxDuration = 300
+
 /**
  * POST /api/lists/[id]/contacts/batch
  * Body: { rows: [{email, first_name, last_name}], done?: boolean, total?: number, duplicates?: number }

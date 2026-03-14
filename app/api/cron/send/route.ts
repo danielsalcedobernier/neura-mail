@@ -1,3 +1,5 @@
+export const maxDuration = 300
+
 import { NextRequest } from 'next/server'
 import nodemailer from 'nodemailer'
 import sql from '@/lib/db'
