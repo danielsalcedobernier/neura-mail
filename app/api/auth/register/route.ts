@@ -1,8 +1,10 @@
 import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
+import { randomBytes } from 'crypto'
 import { z } from 'zod'
 import sql from '@/lib/db'
 import { ok, error, validationError } from '@/lib/api'
+import { sendEmail, verificationEmailHtml } from '@/lib/email'
 
 const schema = z.object({
   email: z.string().email(),
@@ -27,11 +29,12 @@ export async function POST(request: NextRequest) {
     }
 
     const password_hash = await bcrypt.hash(password, 10)
+    const verification_token = randomBytes(32).toString('hex')
 
     const rows = await sql`
-      INSERT INTO users (email, password_hash, full_name, role)
-      VALUES (${email.toLowerCase()}, ${password_hash}, ${full_name}, 'client')
-      RETURNING id
+      INSERT INTO users (email, password_hash, full_name, role, verification_token, email_verified)
+      VALUES (${email.toLowerCase()}, ${password_hash}, ${full_name}, 'client', ${verification_token}, false)
+      RETURNING id, email
     `
 
     const userId = rows[0].id
@@ -41,6 +44,19 @@ export async function POST(request: NextRequest) {
       INSERT INTO user_credits (user_id, balance) VALUES (${userId}, 0)
       ON CONFLICT DO NOTHING
     `
+
+    // Send verification email (fire-and-forget — don't fail registration if email fails)
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
+      const verifyUrl = `${baseUrl}/verify-email?token=${verification_token}`
+      await sendEmail({
+        to: rows[0].email as string,
+        subject: 'Verify your NeuraMail email address',
+        html: verificationEmailHtml(verifyUrl),
+      })
+    } catch (emailErr) {
+      console.error('[register] Failed to send verification email:', emailErr)
+    }
 
     return ok({ id: userId }, 201)
   } catch (err) {
