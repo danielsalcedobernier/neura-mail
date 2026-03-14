@@ -44,11 +44,11 @@ export default function CampaignsPage() {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Campaigns</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Build, schedule, and monitor email campaigns.</p>
+          <h1 className="text-2xl font-semibold text-foreground">Campañas</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Crea, programa y monitorea campañas de email.</p>
         </div>
         <Link href="/dashboard/campaigns/new">
-          <Button><Plus className="w-4 h-4 mr-1.5" /> New Campaign</Button>
+          <Button><Plus className="w-4 h-4 mr-1.5" /> Nueva campaña</Button>
         </Link>
       </div>
 
@@ -58,9 +58,9 @@ export default function CampaignsPage() {
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center py-16 gap-3">
             <Send className="w-10 h-10 text-muted-foreground opacity-40" />
-            <p className="text-sm font-medium text-muted-foreground">No campaigns yet</p>
+            <p className="text-sm font-medium text-muted-foreground">Aún no hay campañas</p>
             <Link href="/dashboard/campaigns/new">
-              <Button size="sm"><Plus className="w-4 h-4 mr-1.5" /> Create your first campaign</Button>
+              <Button size="sm"><Plus className="w-4 h-4 mr-1.5" /> Crear tu primera campaña</Button>
             </Link>
           </CardContent>
         </Card>
@@ -86,11 +86,11 @@ export default function CampaignsPage() {
                       </div>
                       <p className="text-xs text-muted-foreground mb-2 truncate">{c.subject as string}</p>
                       <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                        <span>{Number(c.sent_count).toLocaleString()} sent</span>
-                        <span className="text-blue-500">{openRate}% open</span>
-                        <span className="text-green-500">{clickRate}% click</span>
-                        <span>{Number(c.failed_count)} failed</span>
-                        {c.scheduled_at && <span>Scheduled: {new Date(c.scheduled_at as string).toLocaleString()}</span>}
+                        <span>{Number(c.sent_count).toLocaleString('es-CL')} enviados</span>
+                        <span className="text-blue-500">{openRate}% abiertos</span>
+                        <span className="text-green-500">{clickRate}% clics</span>
+                        <span>{Number(c.failed_count)} fallidos</span>
+                        {c.scheduled_at && <span>Programada: {new Date(c.scheduled_at as string).toLocaleString('es-CL')}</span>}
                       </div>
                     </div>
                     <div className="flex gap-1.5 shrink-0">

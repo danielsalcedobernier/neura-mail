@@ -60,24 +60,24 @@ export default function ListsPage() {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Email Lists</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Upload CSV files and manage your contact lists.</p>
+          <h1 className="text-2xl font-semibold text-foreground">Listas de email</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Sube archivos CSV y gestiona tus listas de contactos.</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button><Plus className="w-4 h-4 mr-1.5" /> Upload List</Button>
+            <Button><Plus className="w-4 h-4 mr-1.5" /> Subir lista</Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Upload Email List</DialogTitle>
+              <DialogTitle>Subir lista de email</DialogTitle>
             </DialogHeader>
             <div className="flex flex-col gap-4 pt-2">
               <div className="flex flex-col gap-1.5">
-                <Label>List Name</Label>
-                <Input placeholder="e.g. Newsletter Q1 2025" value={listName} onChange={e => setListName(e.target.value)} />
+                <Label>Nombre de la lista</Label>
+                <Input placeholder="Ej: Newsletter Q1 2025" value={listName} onChange={e => setListName(e.target.value)} />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label>CSV File</Label>
+                <Label>Archivo CSV</Label>
                 <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
                   <input
                     type="file"
@@ -92,16 +92,16 @@ export default function ListsPage() {
                       <span className="text-sm font-medium text-foreground">{file.name}</span>
                     ) : (
                       <>
-                        <span className="text-sm font-medium text-foreground">Click to upload or drag & drop</span>
-                        <span className="text-xs text-muted-foreground">CSV with email column (max 500MB)</span>
+                        <span className="text-sm font-medium text-foreground">Haz clic o arrastra un archivo</span>
+                        <span className="text-xs text-muted-foreground">CSV con columna email (máx 500MB)</span>
                       </>
                     )}
                   </label>
                 </div>
-                <p className="text-xs text-muted-foreground">Columns: email, first_name, last_name (optional)</p>
+                <p className="text-xs text-muted-foreground">Columnas: email, first_name, last_name (opcional)</p>
               </div>
               <Button onClick={handleUpload} disabled={uploading} className="w-full">
-                {uploading ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Uploading...</> : <><Upload className="w-4 h-4 mr-1.5" /> Upload & Process</>}
+                {uploading ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Subiendo...</> : <><Upload className="w-4 h-4 mr-1.5" /> Subir y procesar</>}
               </Button>
             </div>
           </DialogContent>
@@ -114,8 +114,8 @@ export default function ListsPage() {
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center py-16 gap-3">
             <FileText className="w-10 h-10 text-muted-foreground opacity-40" />
-            <p className="text-sm font-medium text-muted-foreground">No lists yet</p>
-            <p className="text-xs text-muted-foreground">Upload your first CSV to get started</p>
+            <p className="text-sm font-medium text-muted-foreground">Aún no hay listas</p>
+            <p className="text-xs text-muted-foreground">Sube tu primer CSV para comenzar</p>
           </CardContent>
         </Card>
       ) : (
@@ -135,10 +135,10 @@ export default function ListsPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>{Number(list.total_count).toLocaleString()} total</span>
-                      <span className="text-green-600">{Number(list.valid_count).toLocaleString()} valid</span>
-                      <span className="text-destructive">{Number(list.invalid_count).toLocaleString()} invalid</span>
-                      <span>{Number(list.unverified_count).toLocaleString()} unverified</span>
+                      <span>{Number(list.total_count).toLocaleString('es-CL')} total</span>
+                      <span className="text-green-600">{Number(list.valid_count).toLocaleString('es-CL')} válidos</span>
+                      <span className="text-destructive">{Number(list.invalid_count).toLocaleString('es-CL')} inválidos</span>
+                      <span>{Number(list.unverified_count).toLocaleString('es-CL')} sin verificar</span>
                     </div>
                     {list.status === 'processing' && (
                       <div className="mt-2">
@@ -149,7 +149,7 @@ export default function ListsPage() {
                   <div className="flex items-center gap-2 shrink-0">
                     {list.status === 'ready' && Number(list.unverified_count) > 0 && (
                       <Button size="sm" variant="outline" asChild>
-                        <a href={`/dashboard/verification?list=${list.id}`}><CheckCircle2 className="w-3.5 h-3.5 mr-1" />Verify</a>
+                        <a href={`/dashboard/verification?list=${list.id}`}><CheckCircle2 className="w-3.5 h-3.5 mr-1" />Verificar</a>
                       </Button>
                     )}
                     <Button size="sm" variant="ghost" onClick={() => handleDelete(list.id as string)}>

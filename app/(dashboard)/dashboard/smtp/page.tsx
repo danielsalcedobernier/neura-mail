@@ -77,20 +77,20 @@ export default function SmtpPage() {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">SMTP Servers</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Manage your outgoing mail servers and sending limits.</p>
+          <h1 className="text-2xl font-semibold text-foreground">Servidores SMTP</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Gestiona tus servidores de correo saliente y límites de envío.</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button><Plus className="w-4 h-4 mr-1.5" /> Add Server</Button>
+            <Button><Plus className="w-4 h-4 mr-1.5" /> Agregar servidor</Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Add SMTP Server</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Agregar servidor SMTP</DialogTitle></DialogHeader>
             <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4 pt-2">
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2 flex flex-col gap-1.5">
-                  <Label>Server Name</Label>
-                  <Input placeholder="My Gmail Server" {...register('name')} />
+                  <Label>Nombre del servidor</Label>
+                  <Input placeholder="Mi servidor Gmail" {...register('name')} />
                   {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -98,53 +98,53 @@ export default function SmtpPage() {
                   <Input placeholder="smtp.gmail.com" {...register('host')} />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label>Port</Label>
+                  <Label>Puerto</Label>
                   <Input type="number" placeholder="587" {...register('port')} />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label>Username</Label>
+                  <Label>Usuario</Label>
                   <Input placeholder="user@gmail.com" {...register('username')} />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label>Password</Label>
-                  <Input type="password" placeholder="App password" {...register('password')} />
+                  <Label>Contraseña</Label>
+                  <Input type="password" placeholder="Contraseña de app" {...register('password')} />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label>From Email</Label>
-                  <Input placeholder="newsletter@company.com" {...register('from_email')} />
+                  <Label>Email remitente</Label>
+                  <Input placeholder="newsletter@empresa.com" {...register('from_email')} />
                   {errors.from_email && <p className="text-xs text-destructive">{errors.from_email.message}</p>}
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label>From Name</Label>
-                  <Input placeholder="My Company" {...register('from_name')} />
+                  <Label>Nombre remitente</Label>
+                  <Input placeholder="Mi empresa" {...register('from_name')} />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label>Encryption</Label>
+                  <Label>Cifrado</Label>
                   <Select defaultValue="tls" onValueChange={(v) => setValue('encryption', v as 'none' | 'ssl' | 'tls')}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="tls">TLS (STARTTLS)</SelectItem>
                       <SelectItem value="ssl">SSL</SelectItem>
-                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="none">Ninguno</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label>Max / Minute</Label>
+                  <Label>Máx. / minuto</Label>
                   <Input type="number" placeholder="10" {...register('max_per_minute')} />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label>Max / Hour (optional)</Label>
+                  <Label>Máx. / hora (opcional)</Label>
                   <Input type="number" placeholder="600" {...register('max_per_hour')} />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label>Max / Day (optional)</Label>
+                  <Label>Máx. / día (opcional)</Label>
                   <Input type="number" placeholder="5000" {...register('max_per_day')} />
                 </div>
               </div>
               <Button type="submit" disabled={isSubmitting} className="w-full">
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <Server className="w-4 h-4 mr-1.5" />}
-                Add Server
+                Agregar servidor
               </Button>
             </form>
           </DialogContent>
@@ -157,8 +157,8 @@ export default function SmtpPage() {
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center py-16 gap-3">
             <Server className="w-10 h-10 text-muted-foreground opacity-40" />
-            <p className="text-sm font-medium text-muted-foreground">No SMTP servers configured</p>
-            <p className="text-xs text-muted-foreground">Add a server to start sending campaigns</p>
+            <p className="text-sm font-medium text-muted-foreground">No hay servidores SMTP configurados</p>
+            <p className="text-xs text-muted-foreground">Agrega un servidor para comenzar a enviar campañas</p>
           </CardContent>
         </Card>
       ) : (
@@ -173,7 +173,7 @@ export default function SmtpPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <p className="font-medium text-sm text-foreground">{s.name as string}</p>
-                      {s.is_dedicated && <span className="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded font-medium">Dedicated</span>}
+                      {s.is_dedicated && <span className="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded font-medium">Dedicado</span>}
                       {s.last_test_status === 'success' && <CheckCircle className="w-3.5 h-3.5 text-green-500" />}
                       {s.last_test_status === 'failed' && <XCircle className="w-3.5 h-3.5 text-destructive" />}
                     </div>
@@ -182,7 +182,7 @@ export default function SmtpPage() {
                     </p>
                     {(s.sent_today as number) > 0 && (
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {Number(s.sent_today).toLocaleString()} sent today · {Number(s.sent_this_hour)} this hour
+                        {Number(s.sent_today).toLocaleString('es-CL')} enviados hoy · {Number(s.sent_this_hour)} esta hora
                       </p>
                     )}
                   </div>

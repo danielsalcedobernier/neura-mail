@@ -52,8 +52,8 @@ export default function SettingsPage() {
   return (
     <div className="p-6 max-w-2xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">Manage your account preferences</p>
+        <h1 className="text-2xl font-semibold text-foreground">Configuración</h1>
+        <p className="text-sm text-muted-foreground mt-1">Administra las preferencias de tu cuenta</p>
       </div>
 
       <div className="flex flex-col gap-6">
@@ -61,27 +61,27 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <User className="w-4 h-4" />
-              Profile
+              Perfil
             </CardTitle>
-            <CardDescription>Update your display name</CardDescription>
+            <CardDescription>Actualiza tu nombre de usuario</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <Label>Email</Label>
               <Input value={user?.email || ''} disabled className="bg-muted/50" />
-              <p className="text-xs text-muted-foreground">Email cannot be changed</p>
+              <p className="text-xs text-muted-foreground">El email no puede cambiarse</p>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label>Full Name</Label>
+              <Label>Nombre completo</Label>
               <Input
-                placeholder={user?.full_name || 'Your name'}
+                placeholder={user?.full_name || 'Tu nombre'}
                 value={name}
                 onChange={e => setName(e.target.value)}
               />
             </div>
             <Button onClick={saveProfile} disabled={savingProfile} className="self-start">
               {savingProfile ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-              Save Profile
+              Guardar perfil
             </Button>
           </CardContent>
         </Card>
@@ -90,43 +90,43 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Lock className="w-4 h-4" />
-              Change Password
+              Cambiar contraseña
             </CardTitle>
-            <CardDescription>Update your account password</CardDescription>
+            <CardDescription>Actualiza la contraseña de tu cuenta</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
-              <Label>Current Password</Label>
+              <Label>Contraseña actual</Label>
               <Input type="password" value={currentPw} onChange={e => setCurrentPw(e.target.value)} placeholder="••••••••" />
             </div>
             <Separator />
             <div className="flex flex-col gap-1.5">
-              <Label>New Password</Label>
-              <Input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="Min 8 characters" />
+              <Label>Nueva contraseña</Label>
+              <Input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="Mínimo 8 caracteres" />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label>Confirm New Password</Label>
-              <Input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)} placeholder="Repeat new password" />
+              <Label>Confirmar nueva contraseña</Label>
+              <Input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)} placeholder="Repite la nueva contraseña" />
             </div>
             <Button onClick={changePassword} disabled={savingPw} className="self-start">
               {savingPw ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4 mr-2" />}
-              Update Password
+              Actualizar contraseña
             </Button>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Account Info</CardTitle>
+            <CardTitle className="text-base">Información de la cuenta</CardTitle>
           </CardHeader>
           <CardContent>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-              <dt className="text-muted-foreground">Account ID</dt>
+              <dt className="text-muted-foreground">ID de cuenta</dt>
               <dd className="font-mono text-xs text-foreground truncate">{user?.id || '—'}</dd>
-              <dt className="text-muted-foreground">Role</dt>
-              <dd className="capitalize text-foreground">{user?.role || '—'}</dd>
-              <dt className="text-muted-foreground">Member since</dt>
-              <dd className="text-foreground">{user?.created_at ? new Date(user.created_at).toLocaleDateString() : '—'}</dd>
+              <dt className="text-muted-foreground">Rol</dt>
+              <dd className="capitalize text-foreground">{{ client: 'cliente', admin: 'administrador' }[user?.role as string] || user?.role || '—'}</dd>
+              <dt className="text-muted-foreground">Miembro desde</dt>
+              <dd className="text-foreground">{user?.created_at ? new Date(user.created_at).toLocaleDateString('es-CL') : '—'}</dd>
             </dl>
           </CardContent>
         </Card>

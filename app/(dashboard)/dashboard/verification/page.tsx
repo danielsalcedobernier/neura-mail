@@ -69,33 +69,33 @@ export default function VerificationPage() {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Email Verification</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Verify email lists using the global cache and mails.so API.</p>
+          <h1 className="text-2xl font-semibold text-foreground">Verificación de emails</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Verifica listas usando el caché global y la API de mails.so.</p>
         </div>
         <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2">
           <Zap className="w-4 h-4 text-primary" />
           <span className="text-sm font-medium text-foreground">{Number(credits?.balance ?? 0).toLocaleString()}</span>
-          <span className="text-xs text-muted-foreground">credits</span>
+          <span className="text-xs text-muted-foreground">créditos</span>
         </div>
       </div>
 
       {/* New Job */}
       <Card className="mb-6">
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium">Start Verification Job</CardTitle>
+          <CardTitle className="text-sm font-medium">Iniciar verificación</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-end gap-3">
             <div className="flex-1 flex flex-col gap-1.5">
-              <Label>Select List</Label>
+              <Label>Seleccionar lista</Label>
               <Select value={selectedList} onValueChange={setSelectedList}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose an email list..." />
+                  <SelectValue placeholder="Elige una lista..." />
                 </SelectTrigger>
                 <SelectContent>
                   {lists?.map((l: Record<string, unknown>) => (
                     <SelectItem key={l.id as string} value={l.id as string}>
-                      {l.name as string} — {Number(l.unverified_count).toLocaleString()} unverified
+                      {l.name as string} — {Number(l.unverified_count).toLocaleString('es-CL')} sin verificar
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -103,24 +103,24 @@ export default function VerificationPage() {
             </div>
             <Button onClick={startJob} disabled={starting || !selectedList} className="shrink-0">
               {starting ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <Play className="w-4 h-4 mr-1.5" />}
-              Start Verification
+              Iniciar verificación
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Cache hits are free. Only fresh API calls consume credits (1 credit per email).
+            Los hits de caché son gratis. Solo las consultas nuevas consumen créditos (1 crédito por email).
           </p>
         </CardContent>
       </Card>
 
       {/* Jobs */}
       <div>
-        <h2 className="text-sm font-medium text-foreground mb-3">Verification Jobs</h2>
+        <h2 className="text-sm font-medium text-foreground mb-3">Trabajos de verificación</h2>
         {jobsLoading ? (
           <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
         ) : !jobs?.length ? (
           <Card className="border-dashed">
             <CardContent className="flex items-center justify-center py-12">
-              <p className="text-sm text-muted-foreground">No verification jobs yet.</p>
+              <p className="text-sm text-muted-foreground">Aún no hay trabajos de verificación.</p>
             </CardContent>
           </Card>
         ) : (
@@ -141,7 +141,7 @@ export default function VerificationPage() {
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          {processed.toLocaleString()} / {total.toLocaleString()} processed · {Number(job.credits_used)} credits used · {Number(job.cache_hit_count)} cache hits
+                          {processed.toLocaleString('es-CL')} / {total.toLocaleString('es-CL')} procesados · {Number(job.credits_used)} créditos usados · {Number(job.cache_hit_count)} hits caché
                         </p>
                       </div>
                       <div className="flex gap-1.5 shrink-0">
@@ -165,7 +165,7 @@ export default function VerificationPage() {
                         <div key={k} className="flex flex-col items-center bg-muted/50 rounded-md py-2 px-1">
                           {statusIcon[k]}
                           <span className="text-xs font-medium text-foreground mt-1">{Number(job[`${k}_count`] ?? 0).toLocaleString()}</span>
-                          <span className="text-xs text-muted-foreground capitalize">{k.replace('_', ' ')}</span>
+                          <span className="text-xs text-muted-foreground capitalize">{{ valid: 'válido', invalid: 'inválido', risky: 'riesgoso', catch_all: 'catch-all', unknown: 'desconocido' }[k]}</span>
                         </div>
                       ))}
                     </div>
