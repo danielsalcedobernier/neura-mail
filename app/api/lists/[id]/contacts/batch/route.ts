@@ -48,39 +48,35 @@ export async function POST(
       }
 
       // Filter invalid rows and normalize emails
-      const valid = rows.filter(r => r.email && r.email.includes('@'))
+      const valid = rows.filter(r => r.email && typeof r.email === 'string' && r.email.includes('@'))
       if (valid.length > 0) {
         const emails     = valid.map(r => r.email.toLowerCase().trim())
         const firstNames = valid.map(r => r.first_name ?? null)
         const lastNames  = valid.map(r => r.last_name ?? null)
 
-        // neon() tagged-template doesn't support bulk inserts with variable param counts.
-        // Pool.query() supports standard $1..$N parameterized queries — use that instead.
+        // Use UNNEST with 5 array params instead of N*5 individual params.
+        // This is 1 round-trip with exactly 5 parameters regardless of batch size —
+        // no placeholder explosion, no 65535 param limit hit.
         const pool = new Pool({ connectionString: process.env.DATABASE_URL! })
-        const valuePlaceholders = valid.map((_, i) =>
-          `($${i * 5 + 1}::uuid, $${i * 5 + 2}::uuid, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`
-        ).join(', ')
-        const flatValues = valid.flatMap((_, i) => [id, session.id, emails[i], firstNames[i], lastNames[i]])
         await pool.query(
           `INSERT INTO email_list_contacts (list_id, user_id, email, first_name, last_name)
-           VALUES ${valuePlaceholders}
+           SELECT $1::uuid, $2::uuid, e, fn, ln
+           FROM UNNEST($3::text[], $4::text[], $5::text[]) AS t(e, fn, ln)
            ON CONFLICT (list_id, email) DO NOTHING`,
-          flatValues
+          [id, session.id, emails, firstNames, lastNames]
         )
         await pool.end()
       }
     }
 
-    // If browser signals completion, finalize the list
-    // Recount from the actual rows in DB so repeated imports accumulate correctly
+    // If browser signals completion, finalize the list.
+    // Use incremental UPDATE instead of COUNT(*) to avoid full table scans on large lists.
     if (done) {
       await sql`
         UPDATE email_lists SET
           status = 'ready',
-          total_count      = (SELECT COUNT(*)    FROM email_list_contacts WHERE list_id = ${id}),
-          unverified_count = (SELECT COUNT(*)    FROM email_list_contacts WHERE list_id = ${id} AND (verification_status IS NULL OR verification_status = 'unverified')),
-          valid_count      = (SELECT COUNT(*)    FROM email_list_contacts WHERE list_id = ${id} AND verification_status = 'valid'),
-          invalid_count    = (SELECT COUNT(*)    FROM email_list_contacts WHERE list_id = ${id} AND verification_status = 'invalid'),
+          total_count      = total_count + ${total ?? 0},
+          unverified_count = unverified_count + ${total ?? 0},
           processing_progress = 100,
           processing_completed_at = NOW()
         WHERE id = ${id}
