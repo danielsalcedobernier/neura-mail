@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/verify",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/send",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/maintenance",
+      "schedule": "0 * * * *"
+    }
+  ]
+}
