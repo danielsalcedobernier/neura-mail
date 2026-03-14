@@ -67,14 +67,15 @@ export async function POST(
     }
 
     // If browser signals completion, finalize the list
+    // Recount from the actual rows in DB so repeated imports accumulate correctly
     if (done) {
       await sql`
         UPDATE email_lists SET
           status = 'ready',
-          total_count = ${total ?? 0},
-          unverified_count = ${total ?? 0},
-          duplicate_count = ${duplicates ?? 0},
-          valid_count = 0,
+          total_count      = (SELECT COUNT(*)    FROM email_list_contacts WHERE list_id = ${id}),
+          unverified_count = (SELECT COUNT(*)    FROM email_list_contacts WHERE list_id = ${id} AND (verification_status IS NULL OR verification_status = 'unverified')),
+          valid_count      = (SELECT COUNT(*)    FROM email_list_contacts WHERE list_id = ${id} AND verification_status = 'valid'),
+          invalid_count    = (SELECT COUNT(*)    FROM email_list_contacts WHERE list_id = ${id} AND verification_status = 'invalid'),
           processing_progress = 100,
           processing_completed_at = NOW()
         WHERE id = ${id}

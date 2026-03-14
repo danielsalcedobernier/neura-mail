@@ -328,12 +328,12 @@ export default function ListsPage() {
 
       {/* ── Import dialog ── */}
       <Dialog open={importOpen} onOpenChange={v => { if (!importing) setImportOpen(v) }}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Importar a &quot;{importListName}&quot;</DialogTitle>
           </DialogHeader>
 
-          <Tabs defaultValue="file" className="mt-2">
+          <Tabs defaultValue="file" className="mt-2 flex flex-col flex-1 min-h-0">
             <TabsList className="w-full">
               <TabsTrigger value="file" className="flex-1 gap-1.5">
                 <FolderOpen className="w-3.5 h-3.5" /> Archivo
@@ -423,12 +423,13 @@ export default function ListsPage() {
             </TabsContent>
 
             {/* ── Paste tab ── */}
-            <TabsContent value="paste" className="flex flex-col gap-4 pt-3">
-              <div className="flex flex-col gap-1.5">
+            <TabsContent value="paste" className="flex flex-col min-h-0 pt-3 flex-1">
+              {/* Scrollable textarea area */}
+              <div className="flex flex-col gap-1.5 flex-1 min-h-0">
                 <Label>Pega tus emails aquí</Label>
                 <Textarea
                   placeholder={'usuario@ejemplo.com\notro@email.com\n...\n\nTambién funciona con comas o espacios.'}
-                  className="min-h-[180px] font-mono text-xs resize-none"
+                  className="flex-1 min-h-[180px] max-h-[40vh] font-mono text-xs resize-none overflow-y-auto"
                   value={pasteText}
                   onChange={e => {
                     setPasteText(e.target.value)
@@ -446,24 +447,25 @@ export default function ListsPage() {
                 )}
               </div>
 
-              {/* Progress */}
-              {importing && importStep === 'saving' && (
-                <div className="flex flex-col gap-1.5">
-                  <Progress value={importPct} className="h-1.5" />
-                  <p className="text-xs text-muted-foreground text-right">{importPct}%</p>
-                </div>
-              )}
-
-              <Button
-                onClick={handlePasteImport}
-                disabled={!pasteText.trim() || importing || (pastePreview !== null && pastePreview === 0)}
-                className="w-full"
-              >
-                {importing
-                  ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Guardando...</>
-                  : <><ClipboardPaste className="w-4 h-4 mr-1.5" /> Importar {pastePreview ? `${pastePreview.toLocaleString('es-CL')} emails` : 'emails'}</>
-                }
-              </Button>
+              {/* Sticky bottom — always visible */}
+              <div className="flex flex-col gap-2 pt-3 mt-3 border-t border-border shrink-0">
+                {importing && importStep === 'saving' && (
+                  <div className="flex flex-col gap-1.5">
+                    <Progress value={importPct} className="h-1.5" />
+                    <p className="text-xs text-muted-foreground text-right">{importPct}%</p>
+                  </div>
+                )}
+                <Button
+                  onClick={handlePasteImport}
+                  disabled={!pasteText.trim() || importing || (pastePreview !== null && pastePreview === 0)}
+                  className="w-full"
+                >
+                  {importing
+                    ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Guardando...</>
+                    : <><ClipboardPaste className="w-4 h-4 mr-1.5" /> Importar {pastePreview ? `${pastePreview.toLocaleString('es-CL')} emails` : 'emails'}</>
+                  }
+                </Button>
+              </div>
             </TabsContent>
           </Tabs>
         </DialogContent>

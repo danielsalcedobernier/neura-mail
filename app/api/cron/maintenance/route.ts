@@ -73,8 +73,8 @@ export async function GET(request: NextRequest) {
         INSERT INTO daily_stats (date, total_verifications, total_sends, new_users, revenue_usd)
         SELECT
           ${date}::date,
-          COALESCE((SELECT COUNT(*) FROM verification_results WHERE DATE(created_at) = ${date}::date), 0),
-          COALESCE((SELECT COUNT(*) FROM sending_queue WHERE status = 'sent' AND DATE(sent_at) = ${date}::date), 0),
+          COALESCE((SELECT COUNT(*) FROM verification_job_items WHERE DATE(created_at) = ${date}::date), 0),
+          COALESCE((SELECT COUNT(*) FROM campaign_recipients WHERE status = 'sent' AND DATE(sent_at) = ${date}::date), 0),
           COALESCE((SELECT COUNT(*) FROM users WHERE DATE(created_at) = ${date}::date), 0),
           COALESCE((SELECT SUM(amount) FROM credit_transactions WHERE type = 'purchase' AND DATE(created_at) = ${date}::date), 0)
         ON CONFLICT (date) DO UPDATE SET
