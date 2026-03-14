@@ -46,17 +46,21 @@ export async function POST(
       // Filter invalid rows and normalize emails
       const valid = rows.filter(r => r.email && r.email.includes('@'))
       if (valid.length > 0) {
-        // Build a single bulk INSERT — 1 query per batch instead of 1 query per row
-        const values = valid.map(r => ({
-          list_id: id,
-          user_id: session.id,
-          email: r.email.toLowerCase().trim(),
-          first_name: r.first_name ?? null,
-          last_name: r.last_name ?? null,
-        }))
+        const emails     = valid.map(r => r.email.toLowerCase().trim())
+        const firstNames = valid.map(r => r.first_name ?? null)
+        const lastNames  = valid.map(r => r.last_name ?? null)
+        const listIds    = valid.map(() => id)
+        const userIds    = valid.map(() => session.id)
 
+        // Single bulk INSERT using UNNEST — compatible with @neondatabase/serverless
         await sql`
-          INSERT INTO email_list_contacts ${sql(values, 'list_id', 'user_id', 'email', 'first_name', 'last_name')}
+          INSERT INTO email_list_contacts (list_id, user_id, email, first_name, last_name)
+          SELECT
+            UNNEST(${listIds}::uuid[]),
+            UNNEST(${userIds}::uuid[]),
+            UNNEST(${emails}::text[]),
+            UNNEST(${firstNames}::text[]),
+            UNNEST(${lastNames}::text[])
           ON CONFLICT (list_id, email) DO NOTHING
         `
       }
