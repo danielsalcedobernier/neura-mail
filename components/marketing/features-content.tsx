@@ -109,7 +109,7 @@ export default function FeaturesContent({ lang }: { lang: Lang }) {
             </div>
             <pre className="p-6 text-sm font-mono text-white/70 overflow-x-auto leading-relaxed">
 {`curl -X GET \\
-  "https://neuramail.io/api/v1/verify?email=user@example.com" \\
+  "https://neuramail.cl/api/v1/verify?email=user@example.com" \\
   -H "Authorization: Bearer nm_live_xxxxxxxx"
 
 // Response
@@ -127,7 +127,7 @@ export default function FeaturesContent({ lang }: { lang: Lang }) {
 
           <div className="text-center mt-8">
             <Link href={`${base}/docs`}>
-              <Button variant="outline" className="border-white/20 text-white hover:bg-white/10 gap-2">
+              <Button className="bg-transparent border border-white/25 text-white hover:bg-white/10 hover:text-white gap-2">
                 {tr.docsBtn} <ArrowRight className="w-4 h-4" />
               </Button>
             </Link>
@@ -141,7 +141,7 @@ export default function FeaturesContent({ lang }: { lang: Lang }) {
           <h2 className="text-3xl font-bold text-white text-balance">{tr.ctaTitle}</h2>
           <p className="text-white/40 text-pretty">{tr.ctaSub}</p>
           <Link href="/register">
-            <Button size="lg" className="bg-white text-black hover:bg-white/90 font-semibold px-8 gap-2">
+            <Button size="lg" className="bg-white text-black hover:bg-white/90 hover:text-black font-semibold px-8 gap-2">
               {tr.ctaBtn} <ArrowRight className="w-4 h-4" />
             </Button>
           </Link>

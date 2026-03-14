@@ -25,7 +25,7 @@ async function getResendConfig(): Promise<ResendConfig> {
   const extra = (rows[0].extra_config ?? {}) as Record<string, string>
   return {
     apiKey: creds.api_key,
-    fromEmail: extra.from_email ?? 'noreply@neuramail.io',
+    fromEmail: extra.from_email ?? 'noreply@neuramail.cl',
     fromName: extra.from_name ?? 'NeuraMail',
     replyTo: extra.reply_to,
   }
