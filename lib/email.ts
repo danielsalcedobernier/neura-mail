@@ -7,23 +7,41 @@ interface SendEmailOptions {
   text?: string
 }
 
-async function getResendConfig(): Promise<{ apiKey: string; fromEmail: string }> {
+interface ResendConfig {
+  apiKey: string
+  fromEmail: string
+  fromName: string
+  replyTo?: string
+}
+
+async function getResendConfig(): Promise<ResendConfig> {
   const rows = await sql`
     SELECT credentials, extra_config FROM api_connections
     WHERE service_name = 'resend' AND is_active = true
     LIMIT 1
   `
-  if (!rows[0]) throw new Error('Resend API connection not configured')
+  if (!rows[0]) throw new Error('Resend API connection not configured in api_connections table')
   const creds = rows[0].credentials as Record<string, string>
   const extra = (rows[0].extra_config ?? {}) as Record<string, string>
   return {
     apiKey: creds.api_key,
     fromEmail: extra.from_email ?? 'noreply@neuramail.io',
+    fromName: extra.from_name ?? 'NeuraMail',
+    replyTo: extra.reply_to,
   }
 }
 
 export async function sendEmail({ to, subject, html, text }: SendEmailOptions): Promise<void> {
-  const { apiKey, fromEmail } = await getResendConfig()
+  const { apiKey, fromEmail, fromName, replyTo } = await getResendConfig()
+
+  const body: Record<string, unknown> = {
+    from: `${fromName} <${fromEmail}>`,
+    to: [to],
+    subject,
+    html,
+    text: text ?? html.replace(/<[^>]+>/g, ''),
+  }
+  if (replyTo) body.reply_to = replyTo
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -31,13 +49,7 @@ export async function sendEmail({ to, subject, html, text }: SendEmailOptions): 
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      from: `NeuraMail <${fromEmail}>`,
-      to: [to],
-      subject,
-      html,
-      text: text ?? html.replace(/<[^>]+>/g, ''),
-    }),
+    body: JSON.stringify(body),
   })
 
   if (!res.ok) {
