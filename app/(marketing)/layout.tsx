@@ -1,18 +1,6 @@
-import type { Metadata } from 'next'
-import Navbar from '@/components/marketing/navbar'
-import Footer from '@/components/marketing/footer'
-
-export const metadata: Metadata = {
-  title: 'NeuraMail — Verificación de Email y Plataforma de Campañas',
-  description: 'Verifica listas de email a escala, envía campañas y mejora tu entregabilidad con herramientas potenciadas por IA.',
-}
-
+// This layout is a transparent wrapper for the (marketing) route group.
+// Each sub-segment (root ES pages and /en) has its own layout that adds
+// the correct Navbar/Footer for its language — so we render nothing extra here.
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen bg-black text-white flex flex-col">
-      <Navbar lang="es" />
-      <main className="flex-1">{children}</main>
-      <Footer lang="es" />
-    </div>
-  )
+  return <>{children}</>
 }

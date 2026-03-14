@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import FeaturesContent from '@/components/marketing/features-content'
+import EsLayout from '@/components/marketing/es-layout'
 
 export const metadata: Metadata = {
   title: 'Funciones — NeuraMail',
@@ -7,5 +8,5 @@ export const metadata: Metadata = {
 }
 
 export default function FeaturesPage() {
-  return <FeaturesContent lang="es" />
+  return <EsLayout><FeaturesContent lang="es" /></EsLayout>
 }

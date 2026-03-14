@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import DocsContent from '@/components/marketing/docs-content'
+import EsLayout from '@/components/marketing/es-layout'
 
 export const metadata: Metadata = {
   title: 'Documentación API — NeuraMail',
@@ -7,5 +8,5 @@ export const metadata: Metadata = {
 }
 
 export default function DocsPage() {
-  return <DocsContent lang="es" />
+  return <EsLayout><DocsContent lang="es" /></EsLayout>
 }
