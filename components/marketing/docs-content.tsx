@@ -86,7 +86,7 @@ export default function DocsContent({ lang }: { lang: Lang }) {
                 <Globe className="w-3.5 h-3.5" />{tr.baseUrl}
               </div>
               <code className="text-xs font-mono bg-white/5 border border-white/10 px-3 py-1 rounded text-white/60">
-                https://neuramail.io
+                https://neuramail.cl
               </code>
             </div>
           </div>

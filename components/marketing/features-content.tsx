@@ -109,7 +109,7 @@ export default function FeaturesContent({ lang }: { lang: Lang }) {
             </div>
             <pre className="p-6 text-sm font-mono text-white/70 overflow-x-auto leading-relaxed">
 {`curl -X GET \\
-  "https://neuramail.io/api/v1/verify?email=user@example.com" \\
+  "https://neuramail.cl/api/v1/verify?email=user@example.com" \\
   -H "Authorization: Bearer nm_live_xxxxxxxx"
 
 // Response
