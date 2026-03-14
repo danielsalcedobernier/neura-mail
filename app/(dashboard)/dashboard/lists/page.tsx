@@ -26,27 +26,67 @@ const statusBadge: Record<string, string> = {
 export default function ListsPage() {
   const { data: lists, isLoading } = useSWR('/api/lists', fetcher, { refreshInterval: 5000 })
   const [uploading, setUploading] = useState(false)
+  const [uploadStep, setUploadStep] = useState<'idle' | 'requesting' | 'uploading' | 'processing'>('idle')
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [open, setOpen] = useState(false)
   const [listName, setListName] = useState('')
   const [file, setFile] = useState<File | null>(null)
 
   const handleUpload = async () => {
-    if (!file || !listName.trim()) { toast.error('Please enter a name and select a file'); return }
+    if (!file || !listName.trim()) { toast.error('Ingresa un nombre y selecciona un archivo'); return }
     setUploading(true)
+    setUploadProgress(0)
+
     try {
-      const form = new FormData()
-      form.append('name', listName)
-      form.append('file', file)
-      const res = await fetch('/api/lists', { method: 'POST', body: form })
-      const json = await res.json()
-      if (!res.ok) { toast.error(json.error || 'Upload failed'); return }
-      toast.success('List uploaded! Processing started.')
+      // Step 1: Request presigned URL from server, which creates the list record
+      setUploadStep('requesting')
+      const initRes = await fetch('/api/lists/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileSize: file.size,
+          contentType: file.type || 'text/csv',
+          listName: listName.trim(),
+        }),
+      })
+      const initJson = await initRes.json()
+      if (!initRes.ok) { toast.error(initJson.error || 'Error al iniciar subida'); return }
+      const { uploadUrl, listId } = initJson.data
+
+      // Step 2: Upload the file directly to R2 using the presigned URL
+      setUploadStep('uploading')
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100))
+        }
+        xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed: ${xhr.status}`))
+        xhr.onerror = () => reject(new Error('Network error during upload'))
+        xhr.open('PUT', uploadUrl)
+        xhr.setRequestHeader('Content-Type', file.type || 'text/csv')
+        xhr.send(file)
+      })
+
+      // Step 3: Tell the server to process the uploaded file
+      setUploadStep('processing')
+      const processRes = await fetch(`/api/lists/${listId}/process`, { method: 'POST' })
+      const processJson = await processRes.json()
+      if (!processRes.ok) { toast.error(processJson.error || 'Error al procesar archivo'); return }
+
+      toast.success('Lista subida. Procesando emails en segundo plano...')
       mutate('/api/lists')
       setOpen(false)
       setListName('')
       setFile(null)
-    } catch { toast.error('Upload failed') }
-    finally { setUploading(false) }
+    } catch (e) {
+      console.error('[upload]', e)
+      toast.error('Error al subir la lista')
+    } finally {
+      setUploading(false)
+      setUploadStep('idle')
+      setUploadProgress(0)
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -100,8 +140,17 @@ export default function ListsPage() {
                 </div>
                 <p className="text-xs text-muted-foreground">Columnas: email, first_name, last_name (opcional)</p>
               </div>
+              {uploadStep === 'uploading' && (
+                <div className="flex flex-col gap-1">
+                  <Progress value={uploadProgress} className="h-1.5" />
+                  <p className="text-xs text-muted-foreground text-right">{uploadProgress}%</p>
+                </div>
+              )}
               <Button onClick={handleUpload} disabled={uploading} className="w-full">
-                {uploading ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Subiendo...</> : <><Upload className="w-4 h-4 mr-1.5" /> Subir y procesar</>}
+                {uploadStep === 'requesting' && <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Preparando subida...</>}
+                {uploadStep === 'uploading' && <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Subiendo a servidor...</>}
+                {uploadStep === 'processing' && <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Procesando emails...</>}
+                {uploadStep === 'idle' && <><Upload className="w-4 h-4 mr-1.5" /> Subir y procesar</>}
               </Button>
             </div>
           </DialogContent>
