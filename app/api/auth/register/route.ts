@@ -38,9 +38,9 @@ export async function POST(request: NextRequest) {
     `
 
     const userId = rows[0].id
-    const FREE_CREDITS = 100
+    const FREE_CREDITS = 1000
 
-    // Initialize credit balance with 100 free credits
+    // Initialize credit balance with 1,000 free welcome credits
     await sql`
       INSERT INTO user_credits (user_id, balance, total_purchased, total_used)
       VALUES (${userId}, ${FREE_CREDITS}, ${FREE_CREDITS}, 0)
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     // Record the welcome bonus transaction
     await sql`
       INSERT INTO credit_transactions (user_id, amount, type, description, balance_after)
-      VALUES (${userId}, ${FREE_CREDITS}, 'bonus', 'Welcome bonus — 100 free credits', ${FREE_CREDITS})
+      VALUES (${userId}, ${FREE_CREDITS}, 'bonus', 'Welcome bonus — 1,000 free credits', ${FREE_CREDITS})
     `
 
     // Send verification email (fire-and-forget — don't fail registration if email fails)
