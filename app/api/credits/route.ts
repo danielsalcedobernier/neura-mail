@@ -9,7 +9,7 @@ export async function GET() {
   const [balance, transactions] = await Promise.all([
     getUserCredits(session.id),
     sql`
-      SELECT id, amount, type, description, payment_id, status, created_at
+      SELECT id, amount, type, description, balance_after, created_at
       FROM credit_transactions
       WHERE user_id = ${session.id}
       ORDER BY created_at DESC

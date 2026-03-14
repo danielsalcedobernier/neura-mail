@@ -43,17 +43,18 @@ export async function POST(request: NextRequest) {
 
     const { orderId } = parsed.data
 
-    // Verify transaction belongs to this user
-    const txRows = await sql`
-      SELECT * FROM credit_transactions
-      WHERE payment_id = ${orderId} AND user_id = ${session.id} AND status = 'pending'
+    // Verify order belongs to this user and is not already captured
+    const orderRows = await sql`
+      SELECT * FROM paypal_orders
+      WHERE paypal_order_id = ${orderId} AND user_id = ${session.id}
+        AND status NOT IN ('completed', 'failed')
     `
-    if (!txRows[0]) return error('Transaction not found or already processed', 404)
+    if (!orderRows[0]) return error('Order not found or already processed', 404)
 
     const { clientId, clientSecret, baseUrl } = await getPayPalConfig()
     const accessToken = await getPayPalAccessToken(clientId, clientSecret, baseUrl)
 
-    // Capture order
+    // Capture payment from PayPal
     const captureRes = await fetch(`${baseUrl}/v2/checkout/orders/${orderId}/capture`, {
       method: 'POST',
       headers: {
@@ -64,46 +65,46 @@ export async function POST(request: NextRequest) {
 
     const captureData = await captureRes.json()
     if (!captureRes.ok || captureData.status !== 'COMPLETED') {
-      await sql`
-        UPDATE credit_transactions SET status = 'failed', updated_at = NOW()
-        WHERE payment_id = ${orderId}
-      `
+      await sql`UPDATE paypal_orders SET status = 'failed', updated_at = NOW() WHERE paypal_order_id = ${orderId}`
       return error(`Payment capture failed: ${captureData.message || captureData.status}`, 400)
     }
 
-    const tx = txRows[0]
-    const meta = tx.metadata as Record<string, unknown>
+    const order = orderRows[0]
+    const meta = order.metadata as Record<string, unknown>
+    const creditsToAdd = Number(meta.credits || 0)
 
-    // Add credits to user balance
+    // Mark order as completed
     await sql`
-      UPDATE user_credits SET balance = balance + ${tx.amount}, updated_at = NOW()
-      WHERE user_id = ${session.id}
-    `
-    await sql`
-      UPDATE credit_transactions SET status = 'completed', processed_at = NOW(), updated_at = NOW()
-      WHERE payment_id = ${orderId}
+      UPDATE paypal_orders SET
+        status = 'completed', paypal_payment_id = ${captureData.id || null}, updated_at = NOW()
+      WHERE paypal_order_id = ${orderId}
     `
 
-    // Activate plan if this was a plan purchase
-    if (meta.plan_id) {
-      const plans = await sql`SELECT * FROM plans WHERE id = ${meta.plan_id}`
-      if (plans[0]) {
-        await sql`UPDATE user_plans SET status = 'expired' WHERE user_id = ${session.id} AND status = 'active'`
-        await sql`
-          INSERT INTO user_plans (user_id, plan_id, status, started_at, expires_at)
-          VALUES (${session.id}, ${meta.plan_id as string}, 'active', NOW(),
-            CASE WHEN ${plans[0].duration_days} IS NOT NULL
-                 THEN NOW() + (${plans[0].duration_days} || ' days')::INTERVAL
-                 ELSE NULL END)
-        `
-      }
-    }
+    // Ensure user_credits row exists and add balance
+    await sql`
+      INSERT INTO user_credits (user_id, balance, total_purchased, total_used)
+      VALUES (${session.id}, ${creditsToAdd}, ${creditsToAdd}, 0)
+      ON CONFLICT (user_id) DO UPDATE SET
+        balance = user_credits.balance + ${creditsToAdd},
+        total_purchased = user_credits.total_purchased + ${creditsToAdd},
+        updated_at = NOW()
+    `
 
-    const newBalance = await sql`SELECT balance FROM user_credits WHERE user_id = ${session.id}`
+    // Log credit transaction
+    const newBalanceRow = await sql`SELECT balance FROM user_credits WHERE user_id = ${session.id}`
+    const newBalance = Number(newBalanceRow[0]?.balance ?? 0)
+
+    await sql`
+      INSERT INTO credit_transactions (user_id, amount, type, description, balance_after, reference_id)
+      VALUES (${session.id}, ${creditsToAdd}, 'purchase',
+              ${meta.description as string || 'Credit purchase'},
+              ${newBalance}, ${order.id})
+    `
+
     return ok({
       success: true,
-      creditsAdded: tx.amount,
-      newBalance: newBalance[0]?.balance ?? 0,
+      creditsAdded: creditsToAdd,
+      newBalance,
     })
   } catch (e) {
     console.error('[credits/capture-order]', e)

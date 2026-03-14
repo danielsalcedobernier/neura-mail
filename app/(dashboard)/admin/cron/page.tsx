@@ -10,12 +10,15 @@ import { useState } from 'react'
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
 
 const CRON_DESCRIPTIONS: Record<string, string> = {
-  process_verification_jobs: 'Picks up queued verification jobs and processes emails via cache/API',
-  send_scheduled_campaigns: 'Sends scheduled campaigns that are due',
-  process_campaign_emails: 'Sends individual emails for running campaigns (throttled by SMTP limits)',
-  cleanup_expired_sessions: 'Removes expired user sessions from the database',
-  cleanup_expired_cache: 'Removes expired global email cache entries',
-  update_campaign_stats: 'Recalculates open and click rates for all campaigns',
+  process_verification_queue: 'Picks up queued verification jobs and processes emails via cache/API',
+  process_sending_queue: 'Sends individual emails for running campaigns (throttled by SMTP limits)',
+  maintenance: 'Removes expired sessions, cache entries, and stale locks',
+}
+
+const CRON_ENDPOINTS: Record<string, string> = {
+  process_verification_queue: '/api/cron/verify',
+  process_sending_queue: '/api/cron/send',
+  maintenance: '/api/cron/maintenance',
 }
 
 export default function CronPage() {
@@ -24,10 +27,12 @@ export default function CronPage() {
 
   const triggerJob = async (name: string) => {
     setRunning(name)
+    const endpoint = CRON_ENDPOINTS[name]
+    if (!endpoint) { toast.error('No endpoint for this job'); setRunning(null); return }
     try {
-      const res = await fetch(`/api/admin/cron/${name}/trigger`, { method: 'POST' })
+      const res = await fetch(endpoint)
       const json = await res.json()
-      if (res.ok) toast.success(`Job "${name}" triggered`)
+      if (res.ok) toast.success(`Triggered: ${JSON.stringify(json.data).substring(0, 100)}`)
       else toast.error(json.error || 'Trigger failed')
       mutate('/api/admin/cron')
     } catch { toast.error('Trigger failed') }
@@ -79,7 +84,7 @@ export default function CronPage() {
                       <span>Runs: {Number(job.run_count)} times</span>
                       {job.last_run_at && <span>Last: {new Date(job.last_run_at as string).toLocaleString()}</span>}
                       {job.last_run_duration_ms && <span>{Number(job.last_run_duration_ms)}ms</span>}
-                      {job.cron_expression && <code className="bg-muted px-1 rounded">{job.cron_expression as string}</code>}
+                      <code className="bg-muted px-1 rounded">{CRON_ENDPOINTS[job.name as string] || 'no endpoint'}</code>
                     </div>
                     {job.last_error && (
                       <p className="text-xs text-destructive mt-1 font-mono">Error: {job.last_error as string}</p>

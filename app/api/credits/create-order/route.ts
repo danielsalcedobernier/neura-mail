@@ -50,18 +50,18 @@ export async function POST(request: NextRequest) {
     if (!parsed.success) return error('Invalid input', 422)
 
     const { plan_id, credit_package } = parsed.data
-    let amount = 0
+    let amountUsd = 0
     let description = ''
     let credits = 0
 
     if (plan_id) {
-      const plans = await sql`SELECT * FROM plans WHERE id = ${plan_id} AND is_active = true`
+      const plans = await sql`SELECT * FROM credit_packs WHERE id = ${plan_id} AND is_active = true`
       if (!plans[0]) return error('Plan not found', 404)
-      amount = Number(plans[0].price_usd)
-      credits = plans[0].credits_included
-      description = `NeuraMail Plan: ${plans[0].name}`
+      amountUsd = Number(plans[0].price_usd)
+      credits = plans[0].credits + (plans[0].bonus_credits || 0)
+      description = `NeuraMail Credits: ${plans[0].name}`
     } else if (credit_package) {
-      amount = credit_package.price_usd
+      amountUsd = credit_package.price_usd
       credits = credit_package.credits
       description = `NeuraMail Credits: ${credit_package.label}`
     } else {
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         intent: 'CAPTURE',
         purchase_units: [{
-          amount: { currency_code: 'USD', value: amount.toFixed(2) },
+          amount: { currency_code: 'USD', value: amountUsd.toFixed(2) },
           description,
           custom_id: JSON.stringify({ user_id: session.id, plan_id: plan_id || null, credits }),
         }],
@@ -102,12 +102,14 @@ export async function POST(request: NextRequest) {
 
     const orderData = await orderRes.json()
 
-    // Store pending transaction
+    // Store pending order in paypal_orders table
     await sql`
-      INSERT INTO credit_transactions (user_id, amount, type, description, payment_id, payment_provider, status, metadata)
-      VALUES (${session.id}, ${credits}, ${plan_id ? 'plan_purchase' : 'credit_purchase'},
-              ${description}, ${orderData.id}, 'paypal', 'pending',
-              ${JSON.stringify({ amount_usd: amount, plan_id: plan_id || null, order_id: orderData.id })})
+      INSERT INTO paypal_orders (user_id, paypal_order_id, status, amount, currency, type,
+                                  credit_pack_id, metadata)
+      VALUES (${session.id}, ${orderData.id}, 'created', ${amountUsd}, 'USD',
+              ${plan_id ? 'credit_pack' : 'credits'},
+              ${plan_id || null},
+              ${JSON.stringify({ credits, description, order_id: orderData.id })})
     `
 
     const approveLink = orderData.links?.find((l: { rel: string }) => l.rel === 'approve')?.href

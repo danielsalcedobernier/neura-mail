@@ -37,7 +37,7 @@ export default function AdminPlansPage() {
     try {
       const body = {
         name: form.name,
-        credits_included: Number(form.credits),
+        credits: Number(form.credits),
         price_usd: Number(form.price_usd),
         is_active: form.is_active,
       }
@@ -80,7 +80,7 @@ export default function AdminPlansPage() {
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <p className="font-medium text-foreground">{p.name as string}</p>
-                    <p className="text-2xl font-bold text-foreground mt-1">{Number(p.credits_included).toLocaleString()}</p>
+                    <p className="text-2xl font-bold text-foreground mt-1">{Number(p.credits).toLocaleString()}</p>
                     {Number(p.active_users) > 0 && (
                       <p className="text-xs text-blue-600">{Number(p.active_users)} active users</p>
                     )}
@@ -88,7 +88,7 @@ export default function AdminPlansPage() {
                   <p className="text-xl font-bold text-primary">${Number(p.price_usd).toFixed(2)}</p>
                 </div>
                 <p className="text-xs text-muted-foreground mb-3">
-                  ${(Number(p.credits_included) > 0 ? ((Number(p.price_usd) / Number(p.credits_included)) * 1000).toFixed(3) : '—')} / 1k credits
+                  ${(Number(p.credits) > 0 ? ((Number(p.price_usd) / Number(p.credits)) * 1000).toFixed(3) : '—')} / 1k credits
                 </p>
                 <div className="flex items-center justify-between mt-2">
                   <span className={`text-xs px-2 py-0.5 rounded-full ${p.is_active ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'}`}>

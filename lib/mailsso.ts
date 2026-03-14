@@ -37,17 +37,6 @@ async function getConfig(): Promise<MailssoConfig> {
 export async function verifyEmail(email: string): Promise<VerificationResult> {
   const config = await getConfig()
 
-  const response = await fetch(`${config.baseUrl}/verify`, {
-    method: 'GET',
-    headers: {
-      'x-mails-api-key': config.apiKey,
-      'Content-Type': 'application/json',
-    },
-    // query param approach per mails.so docs
-    ...(email ? {} : {}),
-  })
-
-  // Build URL with query params
   const url = new URL(`${config.baseUrl}/verify`)
   url.searchParams.set('email', email)
 

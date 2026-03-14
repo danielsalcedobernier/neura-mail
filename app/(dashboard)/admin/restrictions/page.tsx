@@ -43,14 +43,13 @@ export default function RestrictionsPage() {
     try {
       const body = {
         name: f('name'),
-        rule_type: f('rule_type'),
+        description: f('notes') || null,
         domain_pattern: f('domain_pattern') || null,
         max_per_minute: f('max_per_minute') ? Number(f('max_per_minute')) : null,
         max_per_hour: f('max_per_hour') ? Number(f('max_per_hour')) : null,
         max_per_day: f('max_per_day') ? Number(f('max_per_day')) : null,
         is_active: f('is_active'),
-        applies_to: f('applies_to'),
-        notes: f('notes') || null,
+        applies_to: f('applies_to') === 'all_users' ? 'all' : f('applies_to'),
       }
       const res = await fetch('/api/admin/restrictions', {
         method: 'POST',
@@ -69,17 +68,17 @@ export default function RestrictionsPage() {
 
   const del = async (id: string) => {
     if (!confirm('Remove restriction?')) return
-    const res = await fetch(`/api/admin/restrictions/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/admin/restrictions?id=${id}`, { method: 'DELETE' })
     if (res.ok) toast.success('Removed')
     else toast.error('Delete failed')
     mutate('/api/admin/restrictions')
   }
 
   const toggle = async (id: string, cur: boolean) => {
-    await fetch(`/api/admin/restrictions/${id}`, {
+    await fetch('/api/admin/restrictions', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ is_active: !cur }),
+      body: JSON.stringify({ id, is_active: !cur }),
     })
     mutate('/api/admin/restrictions')
   }

@@ -12,41 +12,32 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const { id } = await params
   try {
     const body = await request.json()
-    const {
-      name, description, price_usd, credits_included, max_smtp_servers,
-      max_email_lists, max_contacts_per_list, max_campaigns_per_month,
-      max_recipients_per_campaign, can_use_ai, can_use_api, can_use_dedicated_smtp,
-      duration_days, is_active, sort_order,
-    } = body
+    const { name, description, price_usd, credits, max_smtp_servers, max_campaigns, emails_per_month, is_active, sort_order, type } = body
 
-    await sql`
+    const rows = await sql`
       UPDATE plans SET
         name = COALESCE(${name ?? null}, name),
         description = COALESCE(${description ?? null}, description),
         price_usd = COALESCE(${price_usd ?? null}, price_usd),
-        credits_included = COALESCE(${credits_included ?? null}, credits_included),
+        credits = COALESCE(${credits ?? null}, credits),
         max_smtp_servers = COALESCE(${max_smtp_servers ?? null}, max_smtp_servers),
-        max_email_lists = COALESCE(${max_email_lists ?? null}, max_email_lists),
-        max_contacts_per_list = COALESCE(${max_contacts_per_list ?? null}, max_contacts_per_list),
-        max_campaigns_per_month = COALESCE(${max_campaigns_per_month ?? null}, max_campaigns_per_month),
-        max_recipients_per_campaign = COALESCE(${max_recipients_per_campaign ?? null}, max_recipients_per_campaign),
-        can_use_ai = COALESCE(${can_use_ai ?? null}, can_use_ai),
-        can_use_api = COALESCE(${can_use_api ?? null}, can_use_api),
-        can_use_dedicated_smtp = COALESCE(${can_use_dedicated_smtp ?? null}, can_use_dedicated_smtp),
-        duration_days = COALESCE(${duration_days ?? null}, duration_days),
+        max_campaigns = COALESCE(${max_campaigns ?? null}, max_campaigns),
+        emails_per_month = COALESCE(${emails_per_month ?? null}, emails_per_month),
         is_active = COALESCE(${is_active ?? null}, is_active),
         sort_order = COALESCE(${sort_order ?? null}, sort_order),
-        updated_at = NOW()
+        type = COALESCE(${type ?? null}, type)
       WHERE id = ${id}
+      RETURNING *
     `
-    return ok({ updated: true })
+    if (!rows[0]) return notFound('Plan')
+    return ok(rows[0])
   } catch (e) {
     console.error('[admin/plans PATCH]', e)
     return error('Failed to update plan', 500)
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requireAdmin()
   } catch {
