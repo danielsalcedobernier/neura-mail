@@ -13,7 +13,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   try {
     const body = await request.json()
-    const { is_active, role, email_verified, add_credits, remove_credits, plan_id } = body
+    const { is_active, role, email_verified, full_name, add_credits, remove_credits, set_credits, plan_id } = body
 
     if (add_credits && add_credits > 0) {
       // Upsert user_credits row then record transaction
@@ -79,10 +79,27 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }
     }
 
+    if (set_credits !== undefined && set_credits >= 0) {
+      const before = await sql`SELECT balance FROM user_credits WHERE user_id = ${id}`
+      const prevBalance = Number(before[0]?.balance ?? 0)
+      const diff = set_credits - prevBalance
+      await sql`
+        INSERT INTO user_credits (user_id, balance, total_purchased, total_used)
+        VALUES (${id}, ${set_credits}, ${Math.max(0, diff)}, 0)
+        ON CONFLICT (user_id) DO UPDATE
+        SET balance = ${set_credits}, updated_at = NOW()
+      `
+      await sql`
+        INSERT INTO credit_transactions (user_id, amount, type, description, balance_after)
+        VALUES (${id}, ${diff}, 'adjustment', 'Balance set by admin', ${set_credits})
+      `
+    }
+
     await sql`
       UPDATE users SET
         is_active = COALESCE(${is_active ?? null}, is_active),
         role = COALESCE(${role ?? null}, role),
+        full_name = COALESCE(${full_name ?? null}, full_name),
         email_verified = COALESCE(${email_verified ?? null}, email_verified),
         updated_at = NOW()
       WHERE id = ${id}
