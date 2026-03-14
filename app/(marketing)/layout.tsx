@@ -1,12 +1,18 @@
-import MarketingNavbar from '@/components/marketing/navbar'
-import MarketingFooter from '@/components/marketing/footer'
+import type { Metadata } from 'next'
+import Navbar from '@/components/marketing/navbar'
+import Footer from '@/components/marketing/footer'
+
+export const metadata: Metadata = {
+  title: 'NeuraMail — Email Verification & Campaign Platform',
+  description: 'Verify email lists at scale, send campaigns, and grow your deliverability with AI-powered tools.',
+}
 
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-black text-white flex flex-col">
-      <MarketingNavbar />
+      <Navbar />
       <main className="flex-1">{children}</main>
-      <MarketingFooter />
+      <Footer />
     </div>
   )
 }
