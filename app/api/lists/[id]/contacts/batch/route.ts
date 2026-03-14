@@ -3,6 +3,9 @@ import { getSession } from '@/lib/auth'
 import sql from '@/lib/db'
 import { ok, error, unauthorized, notFound } from '@/lib/api'
 
+// Vercel Pro/Enterprise: max allowed execution time = 300s (5 min)
+export const maxDuration = 300
+
 /**
  * POST /api/lists/[id]/contacts/batch
  * Body: { rows: [{email, first_name, last_name}], done?: boolean, total?: number, duplicates?: number }
@@ -49,20 +52,18 @@ export async function POST(
         const emails     = valid.map(r => r.email.toLowerCase().trim())
         const firstNames = valid.map(r => r.first_name ?? null)
         const lastNames  = valid.map(r => r.last_name ?? null)
-        const listIds    = valid.map(() => id)
-        const userIds    = valid.map(() => session.id)
 
-        // Single bulk INSERT using UNNEST — compatible with @neondatabase/serverless
-        await sql`
-          INSERT INTO email_list_contacts (list_id, user_id, email, first_name, last_name)
-          SELECT
-            UNNEST(${listIds}::uuid[]),
-            UNNEST(${userIds}::uuid[]),
-            UNNEST(${emails}::text[]),
-            UNNEST(${firstNames}::text[]),
-            UNNEST(${lastNames}::text[])
-          ON CONFLICT (list_id, email) DO NOTHING
-        `
+        // @neondatabase/serverless doesn't support JS arrays as typed array params.
+        // Use parameterized VALUES list instead — safe and universally compatible.
+        const valuePlaceholders = valid.map((_, i) => `($${i * 5 + 1}::uuid, $${i * 5 + 2}::uuid, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`).join(', ')
+        const flatValues = valid.flatMap((_, i) => [id, session.id, emails[i], firstNames[i], lastNames[i]])
+
+        await sql.unsafe(
+          `INSERT INTO email_list_contacts (list_id, user_id, email, first_name, last_name)
+           VALUES ${valuePlaceholders}
+           ON CONFLICT (list_id, email) DO NOTHING`,
+          flatValues
+        )
       }
     }
 

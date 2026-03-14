@@ -1,3 +1,5 @@
+export const maxDuration = 300
+
 import { NextRequest } from 'next/server'
 import sql from '@/lib/db'
 import { withCronLock } from '@/lib/cron'
