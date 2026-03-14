@@ -20,9 +20,8 @@ export async function GET() {
   }
 
   const connections = await sql`
-    SELECT id, service_name, display_name, is_active, extra_config, created_at, updated_at,
-           -- mask credentials for security, only show key names
-           (SELECT jsonb_object_agg(key, REPEAT('*', 8)) FROM jsonb_each_text(credentials)) as credentials_masked
+    SELECT id, service_name, display_name, is_active, credentials, extra_config,
+           last_test_status, last_tested_at, notes, created_at, updated_at
     FROM api_connections
     ORDER BY display_name ASC
   `
