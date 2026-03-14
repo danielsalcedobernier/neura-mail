@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 
-const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
+const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data?.users ?? [])
 
 export default function AdminUsersPage() {
   const [search, setSearch] = useState('')
