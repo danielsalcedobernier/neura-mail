@@ -59,6 +59,33 @@ export async function GET(request: NextRequest) {
         AND locked_at < NOW() - INTERVAL '5 minutes'
     `
 
+    // 8. Generate daily stats (runs once per day — only if not already run today)
+    const statsJob = await sql`
+      SELECT last_run_at FROM cron_jobs WHERE name = 'generate_daily_stats' LIMIT 1
+    `
+    const lastStats = statsJob[0]?.last_run_at
+    const shouldRunStats = !lastStats || new Date(lastStats) < new Date(new Date().setHours(0, 0, 0, 0))
+    if (shouldRunStats) {
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      const date = yesterday.toISOString().split('T')[0]
+      await sql`
+        INSERT INTO daily_stats (date, total_verifications, total_sends, new_users, revenue_usd)
+        SELECT
+          ${date}::date,
+          COALESCE((SELECT COUNT(*) FROM verification_results WHERE DATE(created_at) = ${date}::date), 0),
+          COALESCE((SELECT COUNT(*) FROM sending_queue WHERE status = 'sent' AND DATE(sent_at) = ${date}::date), 0),
+          COALESCE((SELECT COUNT(*) FROM users WHERE DATE(created_at) = ${date}::date), 0),
+          COALESCE((SELECT SUM(amount) FROM credit_transactions WHERE type = 'purchase' AND DATE(created_at) = ${date}::date), 0)
+        ON CONFLICT (date) DO UPDATE SET
+          total_verifications = EXCLUDED.total_verifications,
+          total_sends = EXCLUDED.total_sends,
+          new_users = EXCLUDED.new_users,
+          revenue_usd = EXCLUDED.revenue_usd
+      `
+      results.dailyStats = `generated for ${date}`
+    }
+
     await sql`
       UPDATE cron_jobs SET last_run_at = NOW(), last_run_status = 'success', run_count = run_count + 1
       WHERE name IN (
@@ -67,6 +94,12 @@ export async function GET(request: NextRequest) {
         'send_campaign_scheduled', 'retry_failed_sends'
       )
     `
+    if (shouldRunStats) {
+      await sql`
+        UPDATE cron_jobs SET last_run_at = NOW(), last_run_status = 'success', run_count = run_count + 1
+        WHERE name = 'generate_daily_stats'
+      `
+    }
 
     return ok(results)
   } catch (e) {
