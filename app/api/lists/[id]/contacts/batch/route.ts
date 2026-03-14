@@ -43,12 +43,21 @@ export async function POST(
         `
       }
 
-      for (const contact of rows) {
-        if (!contact.email) continue
+      // Filter invalid rows and normalize emails
+      const valid = rows.filter(r => r.email && r.email.includes('@'))
+      if (valid.length > 0) {
+        // Build a single bulk INSERT — 1 query per batch instead of 1 query per row
+        const values = valid.map(r => ({
+          list_id: id,
+          user_id: session.id,
+          email: r.email.toLowerCase().trim(),
+          first_name: r.first_name ?? null,
+          last_name: r.last_name ?? null,
+        }))
+
         await sql`
-          INSERT INTO email_list_contacts (list_id, user_id, email, first_name, last_name)
-          VALUES (${id}, ${session.id}, ${contact.email.toLowerCase()}, ${contact.first_name ?? null}, ${contact.last_name ?? null})
-          ON CONFLICT DO NOTHING
+          INSERT INTO email_list_contacts ${sql(values, 'list_id', 'user_id', 'email', 'first_name', 'last_name')}
+          ON CONFLICT (list_id, email) DO NOTHING
         `
       }
     }
