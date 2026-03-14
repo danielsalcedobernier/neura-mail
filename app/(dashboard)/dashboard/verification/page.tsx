@@ -70,7 +70,7 @@ export default function VerificationPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Verificación de emails</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Verifica listas usando el caché global y la API de mails.so.</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Verifica la validez de los emails en tus listas.</p>
         </div>
         <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2">
           <Zap className="w-4 h-4 text-primary" />
@@ -107,7 +107,7 @@ export default function VerificationPage() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Los hits de caché son gratis. Solo las consultas nuevas consumen créditos (1 crédito por email).
+            Cada email verificado consume 1 crédito.
           </p>
         </CardContent>
       </Card>
@@ -141,7 +141,7 @@ export default function VerificationPage() {
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          {processed.toLocaleString('es-CL')} / {total.toLocaleString('es-CL')} procesados · {Number(job.credits_used)} créditos usados · {Number(job.cache_hit_count)} hits caché
+                          {processed.toLocaleString('es-CL')} / {total.toLocaleString('es-CL')} procesados · {Number(job.credits_used)} créditos usados
                         </p>
                       </div>
                       <div className="flex gap-1.5 shrink-0">
