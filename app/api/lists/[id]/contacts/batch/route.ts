@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { Pool } from '@neondatabase/serverless'
 import { getSession } from '@/lib/auth'
 import sql from '@/lib/db'
 import { ok, error, unauthorized, notFound } from '@/lib/api'
@@ -53,17 +54,20 @@ export async function POST(
         const firstNames = valid.map(r => r.first_name ?? null)
         const lastNames  = valid.map(r => r.last_name ?? null)
 
-        // @neondatabase/serverless doesn't support JS arrays as typed array params.
-        // Use parameterized VALUES list instead — safe and universally compatible.
-        const valuePlaceholders = valid.map((_, i) => `($${i * 5 + 1}::uuid, $${i * 5 + 2}::uuid, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`).join(', ')
+        // neon() tagged-template doesn't support bulk inserts with variable param counts.
+        // Pool.query() supports standard $1..$N parameterized queries — use that instead.
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL! })
+        const valuePlaceholders = valid.map((_, i) =>
+          `($${i * 5 + 1}::uuid, $${i * 5 + 2}::uuid, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`
+        ).join(', ')
         const flatValues = valid.flatMap((_, i) => [id, session.id, emails[i], firstNames[i], lastNames[i]])
-
-        await sql.unsafe(
+        await pool.query(
           `INSERT INTO email_list_contacts (list_id, user_id, email, first_name, last_name)
            VALUES ${valuePlaceholders}
            ON CONFLICT (list_id, email) DO NOTHING`,
           flatValues
         )
+        await pool.end()
       }
     }
 
