@@ -1,10 +1,10 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import {
   Upload, Plus, Trash2, FileText, Loader2, CheckCircle2,
-  ClipboardPaste, FolderOpen, X,
+  ClipboardPaste, FolderOpen, X, Terminal,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -15,6 +15,48 @@ import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+
+// ─── Live console log panel ───────────────────────────────────────────────────
+type LogLevel = 'info' | 'success' | 'warn' | 'error'
+interface LogEntry { time: string; level: LogLevel; msg: string }
+
+function useImportLog() {
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const log = (msg: string, level: LogLevel = 'info') => {
+    const time = new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    setLogs(prev => [...prev, { time, level, msg }])
+  }
+  const clear = () => setLogs([])
+  return { logs, log, clear }
+}
+
+const levelColor: Record<LogLevel, string> = {
+  info:    'text-muted-foreground',
+  success: 'text-green-500',
+  warn:    'text-yellow-500',
+  error:   'text-destructive',
+}
+const levelPrefix: Record<LogLevel, string> = {
+  info: '›', success: '✓', warn: '⚠', error: '✗',
+}
+
+function ImportConsole({ logs }: { logs: LogEntry[] }) {
+  const bottomRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [logs])
+  if (logs.length === 0) return null
+  return (
+    <div className="rounded-md border border-border bg-[hsl(var(--muted)/0.4)] font-mono text-xs overflow-y-auto max-h-36 p-2 flex flex-col gap-0.5">
+      {logs.map((l, i) => (
+        <div key={i} className="flex gap-2 leading-5">
+          <span className="text-muted-foreground/50 shrink-0">{l.time}</span>
+          <span className={`shrink-0 ${levelColor[l.level]}`}>{levelPrefix[l.level]}</span>
+          <span className={levelColor[l.level]}>{l.msg}</span>
+        </div>
+      ))}
+      <div ref={bottomRef} />
+    </div>
+  )
+}
 
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
 
@@ -29,7 +71,9 @@ const statusLabel: Record<string, string> = {
 }
 
 // ─── shared upload logic (worker + batch) ───────────────────────────────────
-const PARALLEL_BATCHES = 4  // concurrent requests to server
+const PARALLEL_BATCHES = 4
+
+type Logger = (msg: string, level?: LogLevel) => void
 
 async function sendBatch(listId: string, rows: unknown[]) {
   const res = await fetch(`/api/lists/${listId}/contacts/batch`, {
@@ -45,23 +89,28 @@ async function importFileToList(
   listId: string,
   onStep: (step: string) => void,
   onProgress: (pct: number, count: number) => void,
+  log: Logger,
 ) {
+  log(`Archivo: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`)
+  log('Iniciando procesamiento en el navegador...')
+
   const worker = new Worker('/workers/csv-parser.worker.js')
   return new Promise<{ total: number; duplicates: number }>((resolve, reject) => {
-    // Pool of N concurrent batch sends — prevents server overload while
-    // keeping the pipeline full instead of waiting one-by-one.
     const inFlight: Promise<void>[] = []
     let pendingDone: { total: number; duplicates: number } | null = null
+    let batchCount = 0
+    let lastLoggedPct = -1
 
     const drainAndFinalize = () => {
+      log(`Todos los batches enviados. Finalizando...`)
       Promise.all(inFlight).then(async () => {
         const d = pendingDone!
-        await sendBatch(listId, [])  // final "done" signal (no rows, triggers count update)
         await fetch(`/api/lists/${listId}/contacts/batch`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ rows: [], done: true, total: d.total, duplicates: d.duplicates }),
         })
+        log(`Listo. ${d.total.toLocaleString('es-CL')} emails importados, ${d.duplicates.toLocaleString('es-CL')} duplicados ignorados.`, 'success')
         worker.terminate()
         resolve(d)
       }).catch(reject)
@@ -73,30 +122,41 @@ async function importFileToList(
       if (msg.type === 'progress') {
         const pct = msg.total > 0 ? Math.round((msg.parsed / msg.total) * 100) : 0
         onProgress(pct, msg.parsed)
+        // Log every 10%
+        if (pct % 10 === 0 && pct !== lastLoggedPct) {
+          lastLoggedPct = pct
+          log(`Leyendo archivo... ${pct}% (${msg.parsed.toLocaleString('es-CL')} emails encontrados)`)
+        }
       }
 
       if (msg.type === 'batch') {
-        // If we have PARALLEL_BATCHES in flight, wait for the oldest to finish
+        batchCount++
+        const batchNum = batchCount
+        log(`Enviando batch #${batchNum} (${msg.rows.length.toLocaleString('es-CL')} emails) al servidor...`)
         const p = (inFlight.length >= PARALLEL_BATCHES
           ? inFlight.shift()!
           : Promise.resolve()
-        ).then(() => sendBatch(listId, msg.rows))
+        ).then(() => sendBatch(listId, msg.rows).then(() => {
+          log(`Batch #${batchNum} guardado en base de datos.`, 'success')
+        }))
         inFlight.push(p)
         p.catch(reject)
       }
 
       if (msg.type === 'done') {
         onStep('saving')
+        log(`Archivo procesado. ${msg.total.toLocaleString('es-CL')} emails únicos detectados.`)
         pendingDone = { total: msg.total, duplicates: msg.duplicates }
         drainAndFinalize()
       }
 
       if (msg.type === 'error') {
+        log(`Error: ${msg.message}`, 'error')
         worker.terminate()
         reject(new Error(msg.message))
       }
     }
-    worker.onerror = (e) => { worker.terminate(); reject(new Error(e.message)) }
+    worker.onerror = (e) => { log(`Error del worker: ${e.message}`, 'error'); worker.terminate(); reject(new Error(e.message)) }
     worker.postMessage({ type: 'parse', file })
   })
 }
@@ -146,6 +206,9 @@ export default function ListsPage() {
   const [file, setFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Console log
+  const { logs, log, clear } = useImportLog()
+
   // ── Create list ────────────────────────────────────────────────────────────
   const handleCreate = async () => {
     if (!newName.trim()) { toast.error('Ingresa un nombre para la lista'); return }
@@ -176,6 +239,7 @@ export default function ListsPage() {
     setImportStep('idle')
     setImportPct(0)
     setImportCount(0)
+    clear()
     setImportOpen(true)
   }
 
@@ -184,12 +248,14 @@ export default function ListsPage() {
     if (!importListId) return
     setImporting(true)
     setImportStep('parsing')
+    clear()
     try {
       const result = await importFileToList(
         f,
         importListId,
         setImportStep,
         (pct, count) => { setImportPct(pct); setImportCount(count) },
+        log,
       )
       toast.success(`${result.total.toLocaleString('es-CL')} emails importados (${result.duplicates} duplicados ignorados)`)
       mutate('/api/lists')
@@ -211,11 +277,16 @@ export default function ListsPage() {
     if (rows.length === 0) { toast.error('No se encontraron emails válidos en el texto'); return }
     setImporting(true)
     setImportStep('saving')
+    clear()
+    log(`${rows.length.toLocaleString('es-CL')} emails detectados, ${duplicates} duplicados ignorados.`)
+    log('Enviando al servidor en batches...')
     try {
-      // Send in batches of 500
-      for (let i = 0; i < rows.length; i += 500) {
-        const batch = rows.slice(i, i + 500)
-        const last = i + 500 >= rows.length
+      const BATCH = 500
+      for (let i = 0; i < rows.length; i += BATCH) {
+        const batch = rows.slice(i, i + BATCH)
+        const last = i + BATCH >= rows.length
+        const batchNum = Math.floor(i / BATCH) + 1
+        log(`Enviando batch #${batchNum} (${batch.length} emails)...`)
         await fetch(`/api/lists/${importListId}/contacts/batch`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -226,13 +297,18 @@ export default function ListsPage() {
             duplicates: last ? duplicates : undefined,
           }),
         })
+        log(`Batch #${batchNum} guardado.`, 'success')
         setImportPct(Math.round(((i + batch.length) / rows.length) * 100))
       }
+      log(`Importación completa. ${rows.length.toLocaleString('es-CL')} emails guardados.`, 'success')
       toast.success(`${rows.length.toLocaleString('es-CL')} emails importados`)
       mutate('/api/lists')
       setImportOpen(false)
       setPasteText('')
-    } catch { toast.error('Error al importar') }
+    } catch { 
+      log('Error al importar. Intenta nuevamente.', 'error')
+      toast.error('Error al importar') 
+    }
     finally { setImporting(false); setImportStep('idle'); setImportPct(0) }
   }
 
@@ -432,6 +508,17 @@ export default function ListsPage() {
                 </div>
               )}
 
+              {/* Live console */}
+              {logs.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Terminal className="w-3 h-3" />
+                    <span>Consola</span>
+                  </div>
+                  <ImportConsole logs={logs} />
+                </div>
+              )}
+
               <Button
                 onClick={() => file && handleFileImport(file)}
                 disabled={!file || importing}
@@ -477,6 +564,15 @@ export default function ListsPage() {
                   <div className="flex flex-col gap-1.5">
                     <Progress value={importPct} className="h-1.5" />
                     <p className="text-xs text-muted-foreground text-right">{importPct}%</p>
+                  </div>
+                )}
+                {logs.length > 0 && (
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Terminal className="w-3 h-3" />
+                      <span>Consola</span>
+                    </div>
+                    <ImportConsole logs={logs} />
                   </div>
                 )}
                 <Button
