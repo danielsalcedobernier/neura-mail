@@ -48,7 +48,7 @@ export default function HomeContent({ lang }: { lang: Lang }) {
               </Button>
             </Link>
             <Link href={`${base}/pricing`}>
-              <Button size="lg" variant="outline" className="border-white/20 text-white hover:bg-white/10 px-7">
+              <Button size="lg" className="bg-transparent border border-white/25 text-white hover:bg-white/10 hover:text-white px-7">
                 {tr.ctaSecondary}
               </Button>
             </Link>
