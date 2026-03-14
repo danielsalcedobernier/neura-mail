@@ -123,17 +123,17 @@ export async function GET(request: NextRequest) {
     const cacheHits = items.filter((i: { email: string }) => cacheMap.has(i.email.toLowerCase()))
     const needsApi  = items.filter((i: { email: string }) => !cacheMap.has(i.email.toLowerCase()))
 
-    // Process cache hits — 2 bulk queries total
+    // Process cache hits — cache saves the API call but still costs 1 credit
     if (cacheHits.length > 0) {
       await sql`
         UPDATE verification_job_items SET
           status = 'completed',
           result = v.result,
           from_cache = true,
-          credits_charged = 0,
+          credits_charged = 1,
           processed_at = NOW()
         FROM (
-          SELECT UNNEST(${cacheHits.map((i: { id: string }) => i.id)}::uuid[])                                       AS id,
+          SELECT UNNEST(${cacheHits.map((i: { id: string }) => i.id)}::uuid[])                                           AS id,
                  UNNEST(${cacheHits.map((i: { email: string }) => cacheMap.get(i.email.toLowerCase())!.status)}::text[]) AS result
         ) AS v
         WHERE verification_job_items.id = v.id::uuid
@@ -223,8 +223,13 @@ async function finalizeJob(job: { id: string; user_id: string; credits_reserved:
     WHERE id = ${job.id}
   `
 
-  // Refund unused reserved credits
-  const refund = Number(job.credits_reserved) - Number(s.credits_used)
+  // Refund only emails that could not be verified at all (status unknown after trying)
+  // Cache hits and API results both cost 1 credit — only unprocessed items get refunded
+  const unprocessed = await sql`
+    SELECT COUNT(*) AS count FROM verification_job_items
+    WHERE job_id = ${job.id} AND status != 'completed'
+  `
+  const refund = Number(unprocessed[0].count)
   if (refund > 0) {
     await sql`
       UPDATE user_credits SET balance = balance + ${refund}, updated_at = NOW()
