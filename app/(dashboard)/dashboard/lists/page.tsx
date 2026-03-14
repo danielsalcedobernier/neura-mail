@@ -29,6 +29,17 @@ const statusLabel: Record<string, string> = {
 }
 
 // ─── shared upload logic (worker + batch) ───────────────────────────────────
+const PARALLEL_BATCHES = 4  // concurrent requests to server
+
+async function sendBatch(listId: string, rows: unknown[]) {
+  const res = await fetch(`/api/lists/${listId}/contacts/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rows }),
+  })
+  if (!res.ok) throw new Error('Error al guardar batch')
+}
+
 async function importFileToList(
   file: File,
   listId: string,
@@ -37,7 +48,24 @@ async function importFileToList(
 ) {
   const worker = new Worker('/workers/csv-parser.worker.js')
   return new Promise<{ total: number; duplicates: number }>((resolve, reject) => {
-    let batchQueue: Promise<void> = Promise.resolve()
+    // Pool of N concurrent batch sends — prevents server overload while
+    // keeping the pipeline full instead of waiting one-by-one.
+    const inFlight: Promise<void>[] = []
+    let pendingDone: { total: number; duplicates: number } | null = null
+
+    const drainAndFinalize = () => {
+      Promise.all(inFlight).then(async () => {
+        const d = pendingDone!
+        await sendBatch(listId, [])  // final "done" signal (no rows, triggers count update)
+        await fetch(`/api/lists/${listId}/contacts/batch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows: [], done: true, total: d.total, duplicates: d.duplicates }),
+        })
+        worker.terminate()
+        resolve(d)
+      }).catch(reject)
+    }
 
     worker.onmessage = (e) => {
       const msg = e.data
@@ -48,25 +76,19 @@ async function importFileToList(
       }
 
       if (msg.type === 'batch') {
-        batchQueue = batchQueue.then(() =>
-          fetch(`/api/lists/${listId}/contacts/batch`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ rows: msg.rows }),
-          }).then(r => { if (!r.ok) throw new Error('Error al guardar batch') })
-        )
+        // If we have PARALLEL_BATCHES in flight, wait for the oldest to finish
+        const p = (inFlight.length >= PARALLEL_BATCHES
+          ? inFlight.shift()!
+          : Promise.resolve()
+        ).then(() => sendBatch(listId, msg.rows))
+        inFlight.push(p)
+        p.catch(reject)
       }
 
       if (msg.type === 'done') {
         onStep('saving')
-        batchQueue.then(() =>
-          fetch(`/api/lists/${listId}/contacts/batch`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ rows: [], done: true, total: msg.total, duplicates: msg.duplicates }),
-          })
-        ).then(() => { worker.terminate(); resolve({ total: msg.total, duplicates: msg.duplicates }) })
-         .catch(reject)
+        pendingDone = { total: msg.total, duplicates: msg.duplicates }
+        drainAndFinalize()
       }
 
       if (msg.type === 'error') {
