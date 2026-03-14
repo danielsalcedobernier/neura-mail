@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { toast } from 'sonner'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
@@ -328,6 +328,7 @@ export default function ListsPage() {
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Nueva lista</DialogTitle>
+            <DialogDescription>Ingresa un nombre para tu nueva lista de emails.</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 pt-2">
             <div className="flex flex-col gap-1.5">
@@ -353,6 +354,7 @@ export default function ListsPage() {
         <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Importar a &quot;{importListName}&quot;</DialogTitle>
+            <DialogDescription>Sube un archivo CSV/Excel o pega emails directamente.</DialogDescription>
           </DialogHeader>
 
           <Tabs defaultValue="file" className="mt-2 flex flex-col flex-1 min-h-0">
