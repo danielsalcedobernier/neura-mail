@@ -1,7 +1,42 @@
 import { NextRequest } from 'next/server'
+import bcrypt from 'bcryptjs'
 import { requireAdmin } from '@/lib/auth'
 import sql from '@/lib/db'
 import { ok, error, forbidden } from '@/lib/api'
+
+export async function POST(request: NextRequest) {
+  try { await requireAdmin() } catch { return forbidden() }
+
+  try {
+    const { email, full_name, password, role = 'client' } = await request.json()
+    if (!email || !password) return error('Email and password are required', 400)
+    if (password.length < 8) return error('Password must be at least 8 characters', 400)
+
+    const existing = await sql`SELECT id FROM users WHERE email = ${email.toLowerCase().trim()}`
+    if (existing[0]) return error('Email already in use', 409)
+
+    const password_hash = await bcrypt.hash(password, 12)
+    const FREE_CREDITS = 1000
+
+    const [user] = await sql`
+      INSERT INTO users (email, full_name, password_hash, role, is_active, email_verified)
+      VALUES (${email.toLowerCase().trim()}, ${full_name || null}, ${password_hash}, ${role}, true, true)
+      RETURNING id, email, full_name, role
+    `
+    await sql`
+      INSERT INTO user_credits (user_id, balance, total_purchased, total_used)
+      VALUES (${user.id}, ${FREE_CREDITS}, ${FREE_CREDITS}, 0)
+    `
+    await sql`
+      INSERT INTO credit_transactions (user_id, amount, type, description, balance_after)
+      VALUES (${user.id}, ${FREE_CREDITS}, 'bonus', 'Welcome bonus — created by admin', ${FREE_CREDITS})
+    `
+    return ok(user)
+  } catch (e) {
+    console.error('[admin/users POST]', e)
+    return error('Failed to create user', 500)
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
