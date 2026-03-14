@@ -46,19 +46,24 @@ export default async function DashboardPage() {
   const stats = await getDashboardStats(session.id)
 
   const statCards = [
-    { label: 'Verification Credits', value: stats.credits.toLocaleString(), icon: CreditCard, href: '/dashboard/credits', color: 'text-primary' },
-    { label: 'Email Lists', value: stats.totalLists.toString(), icon: BarChart3, href: '/dashboard/lists', color: 'text-green-500' },
-    { label: 'Verified Emails', value: stats.totalValidEmails.toLocaleString(), icon: CheckCircle, href: '/dashboard/verification', color: 'text-blue-500' },
-    { label: 'Emails Sent', value: stats.totalSent.toLocaleString(), icon: Send, href: '/dashboard/campaigns', color: 'text-purple-500' },
+    { label: 'Créditos disponibles', value: stats.credits.toLocaleString('es-CL'), icon: CreditCard, href: '/dashboard/credits', color: 'text-primary' },
+    { label: 'Listas de email', value: stats.totalLists.toString(), icon: BarChart3, href: '/dashboard/lists', color: 'text-green-500' },
+    { label: 'Emails verificados', value: stats.totalValidEmails.toLocaleString('es-CL'), icon: CheckCircle, href: '/dashboard/verification', color: 'text-blue-500' },
+    { label: 'Emails enviados', value: stats.totalSent.toLocaleString('es-CL'), icon: Send, href: '/dashboard/campaigns', color: 'text-purple-500' },
   ]
+
+  const statusLabels: Record<string, string> = {
+    draft: 'borrador', scheduled: 'programada', running: 'enviando',
+    completed: 'completada', failed: 'fallida', paused: 'pausada',
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-foreground">
-          Welcome back, {session.full_name?.split(' ')[0] || 'there'}
+          Bienvenido, {session.full_name?.split(' ')[0] || 'usuario'}
         </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Here&apos;s what&apos;s happening with your account.</p>
+        <p className="text-sm text-muted-foreground mt-0.5">Aquí está el resumen de tu cuenta.</p>
       </div>
 
       {/* Stat Cards */}
@@ -86,11 +91,11 @@ export default async function DashboardPage() {
         <Card className="border-dashed border-primary/30 bg-primary/5">
           <CardContent className="p-5 flex flex-col gap-2">
             <CheckCircle className="w-5 h-5 text-primary" />
-            <h3 className="font-medium text-foreground text-sm">Verify Email List</h3>
-            <p className="text-xs text-muted-foreground">Upload a CSV and verify emails using global cache + mails.so API.</p>
+            <h3 className="font-medium text-foreground text-sm">Verificar lista de emails</h3>
+            <p className="text-xs text-muted-foreground">Sube un CSV y verifica emails usando caché global y la API de mails.so.</p>
             <Link href="/dashboard/verification">
               <Button size="sm" variant="outline" className="mt-1 w-full">
-                Start Verification <ArrowRight className="w-3 h-3 ml-1" />
+                Iniciar verificación <ArrowRight className="w-3 h-3 ml-1" />
               </Button>
             </Link>
           </CardContent>
@@ -98,11 +103,11 @@ export default async function DashboardPage() {
         <Card className="border-dashed border-green-500/30 bg-green-500/5">
           <CardContent className="p-5 flex flex-col gap-2">
             <Send className="w-5 h-5 text-green-600" />
-            <h3 className="font-medium text-foreground text-sm">New Campaign</h3>
-            <p className="text-xs text-muted-foreground">Build an email campaign with AI or manually, then schedule or send now.</p>
+            <h3 className="font-medium text-foreground text-sm">Nueva campaña</h3>
+            <p className="text-xs text-muted-foreground">Crea una campaña de email con IA o manualmente, y prográmala o envíala ahora.</p>
             <Link href="/dashboard/campaigns/new">
               <Button size="sm" variant="outline" className="mt-1 w-full">
-                Create Campaign <ArrowRight className="w-3 h-3 ml-1" />
+                Crear campaña <ArrowRight className="w-3 h-3 ml-1" />
               </Button>
             </Link>
           </CardContent>
@@ -110,11 +115,11 @@ export default async function DashboardPage() {
         <Card className="border-dashed border-purple-500/30 bg-purple-500/5">
           <CardContent className="p-5 flex flex-col gap-2">
             <TrendingUp className="w-5 h-5 text-purple-500" />
-            <h3 className="font-medium text-foreground text-sm">Buy Credits</h3>
-            <p className="text-xs text-muted-foreground">Top up verification credits to keep verifying your email lists.</p>
+            <h3 className="font-medium text-foreground text-sm">Comprar créditos</h3>
+            <p className="text-xs text-muted-foreground">Recarga créditos para seguir verificando tus listas de email.</p>
             <Link href="/dashboard/credits">
               <Button size="sm" variant="outline" className="mt-1 w-full">
-                View Plans <ArrowRight className="w-3 h-3 ml-1" />
+                Ver planes <ArrowRight className="w-3 h-3 ml-1" />
               </Button>
             </Link>
           </CardContent>
@@ -124,16 +129,16 @@ export default async function DashboardPage() {
       {/* Recent Campaigns */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-3">
-          <CardTitle className="text-base font-medium">Recent Campaigns</CardTitle>
+          <CardTitle className="text-base font-medium">Campañas recientes</CardTitle>
           <Link href="/dashboard/campaigns" className="text-xs text-primary hover:underline flex items-center gap-1">
-            View all <ArrowRight className="w-3 h-3" />
+            Ver todas <ArrowRight className="w-3 h-3" />
           </Link>
         </CardHeader>
         <CardContent className="p-0">
           {stats.recentCampaigns.length === 0 ? (
             <div className="px-6 py-10 text-center">
               <Send className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-50" />
-              <p className="text-sm text-muted-foreground">No campaigns yet. Create your first one.</p>
+              <p className="text-sm text-muted-foreground">Aún no hay campañas. Crea tu primera.</p>
             </div>
           ) : (
             <div className="divide-y divide-border">
@@ -141,10 +146,10 @@ export default async function DashboardPage() {
                 <div key={c.id as string} className="flex items-center justify-between px-6 py-3">
                   <div>
                     <p className="text-sm font-medium text-foreground">{c.name as string}</p>
-                    <p className="text-xs text-muted-foreground">{Number(c.sent_count ?? 0).toLocaleString()} sent · {Number(c.opened_count ?? 0).toLocaleString()} opened</p>
+                    <p className="text-xs text-muted-foreground">{Number(c.sent_count ?? 0).toLocaleString('es-CL')} enviados · {Number(c.opened_count ?? 0).toLocaleString('es-CL')} abiertos</p>
                   </div>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColors[c.status as string] || 'bg-muted text-muted-foreground'}`}>
-                    {c.status as string}
+                    {statusLabels[c.status as string] || c.status as string}
                   </span>
                 </div>
               ))}

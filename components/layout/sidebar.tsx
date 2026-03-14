@@ -19,15 +19,15 @@ interface NavItem {
 }
 
 const clientNav: NavItem[] = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Email Lists', href: '/dashboard/lists', icon: FileText },
-  { label: 'Verification', href: '/dashboard/verification', icon: CheckCircle },
-  { label: 'Campaigns', href: '/dashboard/campaigns', icon: Send },
-  { label: 'SMTP Servers', href: '/dashboard/smtp', icon: Server },
-  { label: 'Credits', href: '/dashboard/credits', icon: CreditCard },
-  { label: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
-  { label: 'API Access', href: '/dashboard/api', icon: Key },
-  { label: 'Settings', href: '/dashboard/settings', icon: Settings },
+  { label: 'Inicio', href: '/dashboard', icon: LayoutDashboard },
+  { label: 'Listas de email', href: '/dashboard/lists', icon: FileText },
+  { label: 'Verificación', href: '/dashboard/verification', icon: CheckCircle },
+  { label: 'Campañas', href: '/dashboard/campaigns', icon: Send },
+  { label: 'Servidores SMTP', href: '/dashboard/smtp', icon: Server },
+  { label: 'Créditos', href: '/dashboard/credits', icon: CreditCard },
+  { label: 'Analíticas', href: '/dashboard/analytics', icon: BarChart3 },
+  { label: 'Acceso API', href: '/dashboard/api', icon: Key },
+  { label: 'Configuración', href: '/dashboard/settings', icon: Settings },
 ]
 
 const adminNav: NavItem[] = [
@@ -85,7 +85,7 @@ export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
             'text-xs font-medium px-2 py-0.5 rounded-full',
             role === 'admin' ? 'bg-primary/20 text-primary' : 'bg-sidebar-accent text-sidebar-accent-foreground'
           )}>
-            {role === 'admin' ? 'Admin Panel' : 'Client Dashboard'}
+            {role === 'admin' ? 'Panel Admin' : 'Mi cuenta'}
           </span>
         </div>
       )}
@@ -131,7 +131,7 @@ export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
           )}
         >
           <LogOut className="w-4 h-4 shrink-0" />
-          {!collapsed && <span>Sign out</span>}
+          {!collapsed && <span>Cerrar sesión</span>}
         </button>
         <button
           onClick={() => setCollapsed(!collapsed)}
@@ -140,7 +140,7 @@ export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
             collapsed && 'justify-center px-0'
           )}
         >
-          {collapsed ? <ChevronRight className="w-4 h-4" /> : <><ChevronLeft className="w-4 h-4" /><span className="text-xs">Collapse</span></>}
+          {collapsed ? <ChevronRight className="w-4 h-4" /> : <><ChevronLeft className="w-4 h-4" /><span className="text-xs">Contraer</span></>}
         </button>
       </div>
     </aside>

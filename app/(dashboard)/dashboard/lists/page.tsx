@@ -1,121 +1,254 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import useSWR, { mutate } from 'swr'
-import { Upload, Plus, Trash2, Eye, FileText, Loader2, RefreshCw, CheckCircle2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { toast } from 'sonner'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
-} from '@/components/ui/dialog'
+  Upload, Plus, Trash2, FileText, Loader2, CheckCircle2,
+  ClipboardPaste, FolderOpen, X,
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { toast } from 'sonner'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
 
 const statusBadge: Record<string, string> = {
-  pending: 'bg-muted text-muted-foreground',
+  pending:    'bg-muted text-muted-foreground',
   processing: 'bg-yellow-500/10 text-yellow-600',
-  ready: 'bg-green-500/10 text-green-600',
-  error: 'bg-destructive/10 text-destructive',
+  ready:      'bg-green-500/10 text-green-600',
+  error:      'bg-destructive/10 text-destructive',
+}
+const statusLabel: Record<string, string> = {
+  pending: 'pendiente', processing: 'procesando', ready: 'lista', error: 'error',
 }
 
+// ─── shared upload logic (worker + batch) ───────────────────────────────────
+async function importFileToList(
+  file: File,
+  listId: string,
+  onStep: (step: string) => void,
+  onProgress: (pct: number, count: number) => void,
+) {
+  const worker = new Worker('/workers/csv-parser.worker.js')
+  return new Promise<{ total: number; duplicates: number }>((resolve, reject) => {
+    let batchQueue: Promise<void> = Promise.resolve()
+
+    worker.onmessage = (e) => {
+      const msg = e.data
+
+      if (msg.type === 'progress') {
+        const pct = msg.total > 0 ? Math.round((msg.parsed / msg.total) * 100) : 0
+        onProgress(pct, msg.parsed)
+      }
+
+      if (msg.type === 'batch') {
+        batchQueue = batchQueue.then(() =>
+          fetch(`/api/lists/${listId}/contacts/batch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rows: msg.rows }),
+          }).then(r => { if (!r.ok) throw new Error('Error al guardar batch') })
+        )
+      }
+
+      if (msg.type === 'done') {
+        onStep('saving')
+        batchQueue.then(() =>
+          fetch(`/api/lists/${listId}/contacts/batch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rows: [], done: true, total: msg.total, duplicates: msg.duplicates }),
+          })
+        ).then(() => { worker.terminate(); resolve({ total: msg.total, duplicates: msg.duplicates }) })
+         .catch(reject)
+      }
+
+      if (msg.type === 'error') {
+        worker.terminate()
+        reject(new Error(msg.message))
+      }
+    }
+    worker.onerror = (e) => { worker.terminate(); reject(new Error(e.message)) }
+    worker.postMessage({ type: 'parse', file })
+  })
+}
+
+// ─── parse plain-text paste (one email per line, or comma-separated) ─────────
+function parsePastedEmails(text: string) {
+  const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g
+  const emails = text.match(EMAIL_RE) ?? []
+  const seen = new Set<string>()
+  const rows: { email: string; first_name: null; last_name: null }[] = []
+  let duplicates = 0
+  for (const e of emails) {
+    const lower = e.toLowerCase()
+    if (seen.has(lower)) { duplicates++; continue }
+    seen.add(lower)
+    rows.push({ email: lower, first_name: null, last_name: null })
+  }
+  return { rows, duplicates }
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
 export default function ListsPage() {
   const { data: lists, isLoading } = useSWR('/api/lists', fetcher, { refreshInterval: 5000 })
-  const [uploading, setUploading] = useState(false)
-  const [open, setOpen] = useState(false)
-  const [listName, setListName] = useState('')
+
+  // Create list dialog
+  const [createOpen, setCreateOpen] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  // Import dialog
+  const [importListId, setImportListId] = useState<string | null>(null)
+  const [importListName, setImportListName] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
+
+  // Import state
+  const [importing, setImporting] = useState(false)
+  const [importStep, setImportStep] = useState<'idle' | 'parsing' | 'saving'>('idle')
+  const [importPct, setImportPct] = useState(0)
+  const [importCount, setImportCount] = useState(0)
+
+  // Paste state
+  const [pasteText, setPasteText] = useState('')
+  const [pastePreview, setPastePreview] = useState<number | null>(null)
+
+  // File drag state
+  const [dragOver, setDragOver] = useState(false)
   const [file, setFile] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleUpload = async () => {
-    if (!file || !listName.trim()) { toast.error('Please enter a name and select a file'); return }
-    setUploading(true)
+  // ── Create list ────────────────────────────────────────────────────────────
+  const handleCreate = async () => {
+    if (!newName.trim()) { toast.error('Ingresa un nombre para la lista'); return }
+    setCreating(true)
     try {
-      const form = new FormData()
-      form.append('name', listName)
-      form.append('file', file)
-      const res = await fetch('/api/lists', { method: 'POST', body: form })
+      const res = await fetch('/api/lists', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName.trim() }),
+      })
       const json = await res.json()
-      if (!res.ok) { toast.error(json.error || 'Upload failed'); return }
-      toast.success('List uploaded! Processing started.')
+      if (!res.ok) { toast.error(json.error || 'Error al crear lista'); return }
+      toast.success('Lista creada')
       mutate('/api/lists')
-      setOpen(false)
-      setListName('')
-      setFile(null)
-    } catch { toast.error('Upload failed') }
-    finally { setUploading(false) }
+      setCreateOpen(false)
+      setNewName('')
+    } catch { toast.error('Error al crear lista') }
+    finally { setCreating(false) }
   }
 
+  // ── Open import dialog ────────────────────────────────────────────────────
+  const openImport = (id: string, name: string) => {
+    setImportListId(id)
+    setImportListName(name)
+    setFile(null)
+    setPasteText('')
+    setPastePreview(null)
+    setImportStep('idle')
+    setImportPct(0)
+    setImportCount(0)
+    setImportOpen(true)
+  }
+
+  // ── Import via file ────────────────────────────────────────────────────────
+  const handleFileImport = async (f: File) => {
+    if (!importListId) return
+    setImporting(true)
+    setImportStep('parsing')
+    try {
+      const result = await importFileToList(
+        f,
+        importListId,
+        setImportStep,
+        (pct, count) => { setImportPct(pct); setImportCount(count) },
+      )
+      toast.success(`${result.total.toLocaleString('es-CL')} emails importados (${result.duplicates} duplicados ignorados)`)
+      mutate('/api/lists')
+      setImportOpen(false)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al importar')
+    } finally {
+      setImporting(false)
+      setImportStep('idle')
+      setImportPct(0)
+      setImportCount(0)
+    }
+  }
+
+  // ── Import via paste ────────────────────────────────────────────────────────
+  const handlePasteImport = async () => {
+    if (!importListId || !pasteText.trim()) return
+    const { rows, duplicates } = parsePastedEmails(pasteText)
+    if (rows.length === 0) { toast.error('No se encontraron emails válidos en el texto'); return }
+    setImporting(true)
+    setImportStep('saving')
+    try {
+      // Send in batches of 500
+      for (let i = 0; i < rows.length; i += 500) {
+        const batch = rows.slice(i, i + 500)
+        const last = i + 500 >= rows.length
+        await fetch(`/api/lists/${importListId}/contacts/batch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rows: batch,
+            done: last,
+            total: last ? rows.length : undefined,
+            duplicates: last ? duplicates : undefined,
+          }),
+        })
+        setImportPct(Math.round(((i + batch.length) / rows.length) * 100))
+      }
+      toast.success(`${rows.length.toLocaleString('es-CL')} emails importados`)
+      mutate('/api/lists')
+      setImportOpen(false)
+      setPasteText('')
+    } catch { toast.error('Error al importar') }
+    finally { setImporting(false); setImportStep('idle'); setImportPct(0) }
+  }
+
+  // ── Delete ─────────────────────────────────────────────────────────────────
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this list and all its contacts?')) return
+    if (!confirm('¿Eliminar esta lista y todos sus contactos?')) return
     const res = await fetch(`/api/lists/${id}`, { method: 'DELETE' })
-    if (res.ok) { toast.success('List deleted'); mutate('/api/lists') }
-    else toast.error('Delete failed')
+    if (res.ok) { toast.success('Lista eliminada'); mutate('/api/lists') }
+    else toast.error('Error al eliminar')
   }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Email Lists</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Upload CSV files and manage your contact lists.</p>
+          <h1 className="text-2xl font-semibold text-foreground">Listas de email</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Crea listas e importa contactos desde archivos o texto.</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button><Plus className="w-4 h-4 mr-1.5" /> Upload List</Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Upload Email List</DialogTitle>
-            </DialogHeader>
-            <div className="flex flex-col gap-4 pt-2">
-              <div className="flex flex-col gap-1.5">
-                <Label>List Name</Label>
-                <Input placeholder="e.g. Newsletter Q1 2025" value={listName} onChange={e => setListName(e.target.value)} />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label>CSV File</Label>
-                <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
-                  <input
-                    type="file"
-                    accept=".csv,.txt"
-                    id="file-upload"
-                    className="hidden"
-                    onChange={e => setFile(e.target.files?.[0] || null)}
-                  />
-                  <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center gap-2">
-                    <Upload className="w-8 h-8 text-muted-foreground" />
-                    {file ? (
-                      <span className="text-sm font-medium text-foreground">{file.name}</span>
-                    ) : (
-                      <>
-                        <span className="text-sm font-medium text-foreground">Click to upload or drag & drop</span>
-                        <span className="text-xs text-muted-foreground">CSV with email column (max 500MB)</span>
-                      </>
-                    )}
-                  </label>
-                </div>
-                <p className="text-xs text-muted-foreground">Columns: email, first_name, last_name (optional)</p>
-              </div>
-              <Button onClick={handleUpload} disabled={uploading} className="w-full">
-                {uploading ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Uploading...</> : <><Upload className="w-4 h-4 mr-1.5" /> Upload & Process</>}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <Button onClick={() => setCreateOpen(true)}>
+          <Plus className="w-4 h-4 mr-1.5" /> Nueva lista
+        </Button>
       </div>
 
+      {/* ── Lists ── */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
       ) : !lists?.length ? (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center py-16 gap-3">
             <FileText className="w-10 h-10 text-muted-foreground opacity-40" />
-            <p className="text-sm font-medium text-muted-foreground">No lists yet</p>
-            <p className="text-xs text-muted-foreground">Upload your first CSV to get started</p>
+            <p className="text-sm font-medium text-muted-foreground">Aún no hay listas</p>
+            <p className="text-xs text-muted-foreground">Crea tu primera lista para comenzar</p>
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="w-4 h-4 mr-1.5" /> Nueva lista
+            </Button>
           </CardContent>
         </Card>
       ) : (
@@ -131,14 +264,14 @@ export default function ListsPage() {
                     <div className="flex items-center gap-2 mb-1">
                       <p className="font-medium text-foreground text-sm truncate">{list.name as string}</p>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusBadge[list.status as string]}`}>
-                        {list.status as string}
+                        {statusLabel[list.status as string] ?? list.status as string}
                       </span>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>{Number(list.total_count).toLocaleString()} total</span>
-                      <span className="text-green-600">{Number(list.valid_count).toLocaleString()} valid</span>
-                      <span className="text-destructive">{Number(list.invalid_count).toLocaleString()} invalid</span>
-                      <span>{Number(list.unverified_count).toLocaleString()} unverified</span>
+                      <span>{Number(list.total_count).toLocaleString('es-CL')} total</span>
+                      <span className="text-green-600">{Number(list.valid_count).toLocaleString('es-CL')} válidos</span>
+                      <span className="text-destructive">{Number(list.invalid_count).toLocaleString('es-CL')} inválidos</span>
+                      <span>{Number(list.unverified_count).toLocaleString('es-CL')} sin verificar</span>
                     </div>
                     {list.status === 'processing' && (
                       <div className="mt-2">
@@ -147,9 +280,14 @@ export default function ListsPage() {
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    <Button size="sm" variant="outline" onClick={() => openImport(list.id as string, list.name as string)}>
+                      <Upload className="w-3.5 h-3.5 mr-1" /> Importar
+                    </Button>
                     {list.status === 'ready' && Number(list.unverified_count) > 0 && (
                       <Button size="sm" variant="outline" asChild>
-                        <a href={`/dashboard/verification?list=${list.id}`}><CheckCircle2 className="w-3.5 h-3.5 mr-1" />Verify</a>
+                        <a href={`/dashboard/verification?list=${list.id}`}>
+                          <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Verificar
+                        </a>
                       </Button>
                     )}
                     <Button size="sm" variant="ghost" onClick={() => handleDelete(list.id as string)}>
@@ -162,6 +300,174 @@ export default function ListsPage() {
           ))}
         </div>
       )}
+
+      {/* ── Create list dialog ── */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Nueva lista</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 pt-2">
+            <div className="flex flex-col gap-1.5">
+              <Label>Nombre</Label>
+              <Input
+                placeholder="Ej: Newsletter Q1 2025"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleCreate()}
+                autoFocus
+              />
+            </div>
+            <Button onClick={handleCreate} disabled={creating}>
+              {creating ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <Plus className="w-4 h-4 mr-1.5" />}
+              Crear lista
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Import dialog ── */}
+      <Dialog open={importOpen} onOpenChange={v => { if (!importing) setImportOpen(v) }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Importar a &quot;{importListName}&quot;</DialogTitle>
+          </DialogHeader>
+
+          <Tabs defaultValue="file" className="mt-2">
+            <TabsList className="w-full">
+              <TabsTrigger value="file" className="flex-1 gap-1.5">
+                <FolderOpen className="w-3.5 h-3.5" /> Archivo
+              </TabsTrigger>
+              <TabsTrigger value="paste" className="flex-1 gap-1.5">
+                <ClipboardPaste className="w-3.5 h-3.5" /> Copiar y pegar
+              </TabsTrigger>
+            </TabsList>
+
+            {/* ── File tab ── */}
+            <TabsContent value="file" className="flex flex-col gap-4 pt-3">
+              <div
+                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
+                  dragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
+                }`}
+                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={e => {
+                  e.preventDefault()
+                  setDragOver(false)
+                  const f = e.dataTransfer.files[0]
+                  if (f) setFile(f)
+                }}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.txt,.xlsx,.xls"
+                  className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) setFile(f) }}
+                />
+                {file ? (
+                  <div className="flex items-center justify-center gap-3">
+                    <FileText className="w-6 h-6 text-primary" />
+                    <div className="text-left">
+                      <p className="text-sm font-medium text-foreground">{file.name}</p>
+                      <p className="text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
+                    </div>
+                    <button
+                      className="ml-2 text-muted-foreground hover:text-foreground"
+                      onClick={e => { e.stopPropagation(); setFile(null) }}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm font-medium text-foreground">Arrastra tu archivo aquí</p>
+                    <p className="text-xs text-muted-foreground mt-1">o haz clic para seleccionar</p>
+                    <p className="text-xs text-muted-foreground mt-2">CSV, Excel (.xlsx/.xls) · máx 500 MB</p>
+                  </>
+                )}
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Columnas detectadas automáticamente: <span className="font-mono">email</span>, <span className="font-mono">first_name</span>, <span className="font-mono">last_name</span>
+              </p>
+
+              {/* Progress */}
+              {importing && (
+                <div className="flex flex-col gap-1.5">
+                  <Progress value={importPct} className="h-1.5" />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>
+                      {importStep === 'parsing' && 'Procesando en navegador...'}
+                      {importStep === 'saving'  && 'Guardando en base de datos...'}
+                    </span>
+                    <span>{importCount.toLocaleString('es-CL')} emails · {importPct}%</span>
+                  </div>
+                </div>
+              )}
+
+              <Button
+                onClick={() => file && handleFileImport(file)}
+                disabled={!file || importing}
+                className="w-full"
+              >
+                {importing
+                  ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" />
+                      {importStep === 'parsing' ? 'Procesando...' : 'Guardando...'}
+                    </>
+                  : <><Upload className="w-4 h-4 mr-1.5" /> Importar archivo</>
+                }
+              </Button>
+            </TabsContent>
+
+            {/* ── Paste tab ── */}
+            <TabsContent value="paste" className="flex flex-col gap-4 pt-3">
+              <div className="flex flex-col gap-1.5">
+                <Label>Pega tus emails aquí</Label>
+                <Textarea
+                  placeholder={'usuario@ejemplo.com\notro@email.com\n...\n\nTambién funciona con comas o espacios.'}
+                  className="min-h-[180px] font-mono text-xs resize-none"
+                  value={pasteText}
+                  onChange={e => {
+                    setPasteText(e.target.value)
+                    const { rows } = parsePastedEmails(e.target.value)
+                    setPastePreview(rows.length)
+                  }}
+                />
+                {pastePreview !== null && pastePreview > 0 && (
+                  <p className="text-xs text-green-600">
+                    {pastePreview.toLocaleString('es-CL')} emails válidos detectados
+                  </p>
+                )}
+                {pastePreview === 0 && pasteText.length > 5 && (
+                  <p className="text-xs text-destructive">No se detectaron emails válidos</p>
+                )}
+              </div>
+
+              {/* Progress */}
+              {importing && importStep === 'saving' && (
+                <div className="flex flex-col gap-1.5">
+                  <Progress value={importPct} className="h-1.5" />
+                  <p className="text-xs text-muted-foreground text-right">{importPct}%</p>
+                </div>
+              )}
+
+              <Button
+                onClick={handlePasteImport}
+                disabled={!pasteText.trim() || importing || (pastePreview !== null && pastePreview === 0)}
+                className="w-full"
+              >
+                {importing
+                  ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Guardando...</>
+                  : <><ClipboardPaste className="w-4 h-4 mr-1.5" /> Importar {pastePreview ? `${pastePreview.toLocaleString('es-CL')} emails` : 'emails'}</>
+                }
+              </Button>
+            </TabsContent>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

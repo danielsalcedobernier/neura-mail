@@ -84,8 +84,8 @@ export default function CreditsPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-foreground">Verification Credits</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Credits are consumed to verify emails. Cache hits are always free.</p>
+        <h1 className="text-2xl font-semibold text-foreground">Créditos de verificación</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Los créditos se consumen al verificar emails. Los hits de caché son siempre gratis.</p>
       </div>
 
       {/* Balance */}
@@ -96,34 +96,34 @@ export default function CreditsPage() {
               <Zap className="w-6 h-6 text-primary" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Available Balance</p>
-              <p className="text-3xl font-bold text-foreground">{Number(credits?.balance ?? 0).toLocaleString()}</p>
-              <p className="text-xs text-muted-foreground">verification credits</p>
+              <p className="text-xs text-muted-foreground">Saldo disponible</p>
+              <p className="text-3xl font-bold text-foreground">{Number(credits?.balance ?? 0).toLocaleString('es-CL')}</p>
+              <p className="text-xs text-muted-foreground">créditos de verificación</p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-5">
-            <p className="text-xs text-muted-foreground mb-1">Cost per 1,000 verifications</p>
+            <p className="text-xs text-muted-foreground mb-1">Costo por 1.000 verificaciones</p>
             <p className="text-xl font-semibold text-foreground">$1.00 – $1.80</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Cache hits are free</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Hits de caché son gratis</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-5">
-            <p className="text-xs text-muted-foreground mb-1">Payment method</p>
+            <p className="text-xs text-muted-foreground mb-1">Método de pago</p>
             <div className="flex items-center gap-2 mt-1">
               <CreditCard className="w-5 h-5 text-muted-foreground" />
               <span className="text-sm font-medium text-foreground">PayPal</span>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">Secure checkout</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Pago seguro</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Credit Packages */}
       <div className="mb-8">
-        <h2 className="text-base font-semibold text-foreground mb-3">Buy Credits</h2>
+        <h2 className="text-base font-semibold text-foreground mb-3">Comprar créditos</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {packages.map((pkg: Record<string, unknown>) => {
             const totalCredits = Number(pkg.credits) + Number(pkg.bonus_credits || 0)
@@ -134,18 +134,18 @@ export default function CreditsPage() {
               <Card key={pkgId} className={`relative hover:border-primary/40 transition-colors ${isPopular ? 'border-primary/50 ring-1 ring-primary/20' : ''}`}>
                 {isPopular && (
                   <div className="absolute -top-2.5 left-1/2 -translate-x-1/2">
-                    <span className="text-xs px-2 py-0.5 bg-primary text-primary-foreground rounded-full font-medium">Most Popular</span>
+                    <span className="text-xs px-2 py-0.5 bg-primary text-primary-foreground rounded-full font-medium">Más popular</span>
                   </div>
                 )}
                 <CardContent className="p-5 flex flex-col gap-3">
                   <div>
                     <p className="font-medium text-foreground">{pkg.name as string || pkg.label as string}</p>
                     <p className="text-2xl font-bold text-foreground mt-1">${Number(pkg.price_usd).toFixed(2)}</p>
-                    <p className="text-sm text-muted-foreground">{totalCredits.toLocaleString()} credits</p>
+                    <p className="text-sm text-muted-foreground">{totalCredits.toLocaleString('es-CL')} créditos</p>
                     {Number(pkg.bonus_credits) > 0 && (
-                      <p className="text-xs text-green-600">+{Number(pkg.bonus_credits).toLocaleString()} bonus credits</p>
+                      <p className="text-xs text-green-600">+{Number(pkg.bonus_credits).toLocaleString('es-CL')} créditos extra</p>
                     )}
-                    <p className="text-xs text-muted-foreground">${perk} per 1k verifications</p>
+                    <p className="text-xs text-muted-foreground">${perk} por 1k verificaciones</p>
                   </div>
                   <Button
                     className="w-full"
@@ -156,7 +156,7 @@ export default function CreditsPage() {
                   >
                     {buying === pkgId
                       ? <Loader2 className="w-4 h-4 animate-spin" />
-                      : <><ShoppingCart className="w-3.5 h-3.5 mr-1.5" /> Buy with PayPal</>
+                      : <><ShoppingCart className="w-3.5 h-3.5 mr-1.5" /> Pagar con PayPal</>  
                     }
                   </Button>
                 </CardContent>
@@ -165,19 +165,19 @@ export default function CreditsPage() {
           })}
         </div>
         <p className="text-xs text-muted-foreground mt-2">
-          You will be redirected to PayPal to complete your purchase securely.
-          Credits are added instantly after payment confirmation.
+          Serás redirigido a PayPal para completar tu compra de forma segura.
+          Los créditos se agregan inmediatamente tras confirmar el pago.
         </p>
       </div>
 
       {/* Transaction History */}
       <div>
-        <h2 className="text-base font-semibold text-foreground mb-3">Transaction History</h2>
+        <h2 className="text-base font-semibold text-foreground mb-3">Historial de transacciones</h2>
         <Card>
           {!credits?.transactions?.length ? (
             <CardContent className="flex flex-col items-center justify-center py-12 gap-3">
               <PackageOpen className="w-8 h-8 text-muted-foreground opacity-40" />
-              <p className="text-sm text-muted-foreground">No transactions yet.</p>
+              <p className="text-sm text-muted-foreground">Aún no hay transacciones.</p>
             </CardContent>
           ) : (
             <div className="divide-y divide-border">
@@ -187,7 +187,7 @@ export default function CreditsPage() {
                     {txIcon(tx.type as string)}
                     <div>
                       <p className="text-sm text-foreground">{tx.description as string || tx.type as string}</p>
-                      <p className="text-xs text-muted-foreground">{new Date(tx.created_at as string).toLocaleDateString()} · balance after: {Number(tx.balance_after).toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">{new Date(tx.created_at as string).toLocaleDateString('es-CL')} · saldo tras: {Number(tx.balance_after).toLocaleString('es-CL')}</p>
                     </div>
                   </div>
                   <p className={`text-sm font-medium ${Number(tx.amount) >= 0 ? 'text-green-600' : 'text-destructive'}`}>
