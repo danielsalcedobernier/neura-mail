@@ -92,7 +92,7 @@ export default async function DashboardPage() {
           <CardContent className="p-5 flex flex-col gap-2">
             <CheckCircle className="w-5 h-5 text-primary" />
             <h3 className="font-medium text-foreground text-sm">Verificar lista de emails</h3>
-            <p className="text-xs text-muted-foreground">Sube un CSV y verifica emails usando caché global y la API de mails.so.</p>
+            <p className="text-xs text-muted-foreground">Verifica la validez de los emails en tus listas antes de enviar campañas.</p>
             <Link href="/dashboard/verification">
               <Button size="sm" variant="outline" className="mt-1 w-full">
                 Iniciar verificación <ArrowRight className="w-3 h-3 ml-1" />

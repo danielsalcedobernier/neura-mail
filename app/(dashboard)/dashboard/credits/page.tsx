@@ -85,7 +85,7 @@ export default function CreditsPage() {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-foreground">Créditos de verificación</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Los créditos se consumen al verificar emails. Los hits de caché son siempre gratis.</p>
+        <p className="text-sm text-muted-foreground mt-0.5">Los créditos se consumen al verificar emails (1 crédito por email).</p>
       </div>
 
       {/* Balance */}
@@ -106,7 +106,7 @@ export default function CreditsPage() {
           <CardContent className="p-5">
             <p className="text-xs text-muted-foreground mb-1">Costo por 1.000 verificaciones</p>
             <p className="text-xl font-semibold text-foreground">$1.00 – $1.80</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Hits de caché son gratis</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Según el volumen</p>
           </CardContent>
         </Card>
         <Card>

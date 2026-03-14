@@ -70,13 +70,13 @@ export async function POST(request: NextRequest) {
       RETURNING id, status, total_emails, created_at
     `
 
-    // Seed job items from list contacts
+    // Seed job items from list contacts — NULL and 'unverified' both mean not yet verified
     await sql`
       INSERT INTO verification_job_items (job_id, contact_id, email)
       SELECT ${rows[0].id}, id, email
       FROM email_list_contacts
       WHERE list_id = ${list_id}
-        AND verification_status = 'unverified'
+        AND (verification_status IS NULL OR verification_status = 'unverified')
         AND user_id = ${session.id}
     `
 
