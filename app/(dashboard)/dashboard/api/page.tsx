@@ -38,7 +38,7 @@ export default function ApiPage() {
     if (!confirm('This will invalidate your current API key. Continue?')) return
     setRegenerating(true)
     try {
-      const res = await fetch('/api/user/regenerate-api-key', { method: 'POST' })
+      const res = await fetch('/api/user/api-key', { method: 'POST' })
       if (res.ok) { toast.success('New API key generated'); mutate('/api/auth/me') }
       else toast.error('Failed to regenerate')
     } catch { toast.error('Failed to regenerate') }

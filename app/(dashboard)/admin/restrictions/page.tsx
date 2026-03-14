@@ -15,75 +15,87 @@ import { toast } from 'sonner'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
 
-const RESTRICTION_TYPES = [
-  { value: 'global_send_limit', label: 'Global Send Limit (emails/day)' },
-  { value: 'per_user_send_limit', label: 'Per-User Send Limit (emails/day)' },
-  { value: 'blocked_domain', label: 'Blocked Domain' },
-  { value: 'blocked_keyword', label: 'Blocked Keyword in Subject' },
-  { value: 'max_list_size', label: 'Max Email List Size' },
-  { value: 'max_smtp_servers', label: 'Max SMTP Servers per User' },
-  { value: 'require_verified_list', label: 'Require Verified List for Campaigns' },
+const RULE_TYPES = [
+  { value: 'domain', label: 'Domain Pattern' },
+  { value: 'rate_limit', label: 'Rate Limit' },
+  { value: 'global', label: 'Global Limit' },
+  { value: 'email_pattern', label: 'Email Pattern' },
 ]
 
-const typeColor: Record<string, string> = {
-  global_send_limit: 'bg-blue-500/10 text-blue-600',
-  per_user_send_limit: 'bg-purple-500/10 text-purple-600',
-  blocked_domain: 'bg-destructive/10 text-destructive',
-  blocked_keyword: 'bg-orange-500/10 text-orange-600',
-  max_list_size: 'bg-muted text-muted-foreground',
-  max_smtp_servers: 'bg-muted text-muted-foreground',
-  require_verified_list: 'bg-yellow-500/10 text-yellow-600',
+const emptyForm = {
+  name: '', rule_type: 'domain', domain_pattern: '', max_per_minute: '',
+  max_per_hour: '', max_per_day: '', is_active: true, notes: '',
+  applies_to: 'all_users',
 }
 
 export default function RestrictionsPage() {
   const { data: restrictions, isLoading } = useSWR('/api/admin/restrictions', fetcher)
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ type: 'global_send_limit', name: '', value: '', description: '', is_active: true })
+  const [form, setForm] = useState<Record<string, unknown>>(emptyForm)
+
+  const f = (key: string) => form[key]
+  const setF = (key: string, val: unknown) => setForm(p => ({ ...p, [key]: val }))
 
   const save = async () => {
-    if (!form.name.trim() || !form.value.trim()) { toast.error('Name and value required'); return }
+    if (!String(f('name')).trim()) { toast.error('Name required'); return }
     setSaving(true)
     try {
+      const body = {
+        name: f('name'),
+        rule_type: f('rule_type'),
+        domain_pattern: f('domain_pattern') || null,
+        max_per_minute: f('max_per_minute') ? Number(f('max_per_minute')) : null,
+        max_per_hour: f('max_per_hour') ? Number(f('max_per_hour')) : null,
+        max_per_day: f('max_per_day') ? Number(f('max_per_day')) : null,
+        is_active: f('is_active'),
+        applies_to: f('applies_to'),
+        notes: f('notes') || null,
+      }
       const res = await fetch('/api/admin/restrictions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(body),
       })
       const json = await res.json()
       if (!res.ok) { toast.error(json.error || 'Save failed'); return }
       toast.success('Restriction added')
       mutate('/api/admin/restrictions')
       setOpen(false)
-      setForm({ type: 'global_send_limit', name: '', value: '', description: '', is_active: true })
+      setForm(emptyForm)
     } catch { toast.error('Save failed') }
     finally { setSaving(false) }
   }
 
   const del = async (id: string) => {
     if (!confirm('Remove restriction?')) return
-    await fetch(`/api/admin/restrictions/${id}`, { method: 'DELETE' })
-    toast.success('Restriction removed')
+    const res = await fetch(`/api/admin/restrictions/${id}`, { method: 'DELETE' })
+    if (res.ok) toast.success('Removed')
+    else toast.error('Delete failed')
     mutate('/api/admin/restrictions')
   }
 
-  const toggle = async (id: string, current: boolean) => {
+  const toggle = async (id: string, cur: boolean) => {
     await fetch(`/api/admin/restrictions/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ is_active: !current }),
+      body: JSON.stringify({ is_active: !cur }),
     })
     mutate('/api/admin/restrictions')
   }
+
+  const typeLabel = (rt: string) => RULE_TYPES.find(t => t.value === rt)?.label || rt
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Sending Restrictions</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Set platform-wide limits and content filters.</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Define rate limits and domain-level sending rules.</p>
         </div>
-        <Button onClick={() => setOpen(true)}><Plus className="w-4 h-4 mr-1.5" /> Add Restriction</Button>
+        <Button onClick={() => { setForm(emptyForm); setOpen(true) }}>
+          <Plus className="w-4 h-4 mr-1.5" /> Add Restriction
+        </Button>
       </div>
 
       {isLoading ? (
@@ -97,12 +109,16 @@ export default function RestrictionsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <p className="font-medium text-sm text-foreground">{r.name as string}</p>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${typeColor[r.type as string] || 'bg-muted text-muted-foreground'}`}>
-                        {RESTRICTION_TYPES.find(t => t.value === r.type)?.label || r.type as string}
-                      </span>
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{typeLabel(r.rule_type as string)}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary">{r.applies_to as string}</span>
                     </div>
-                    <p className="text-xs text-muted-foreground">Value: <span className="font-mono text-foreground">{r.value as string}</span></p>
-                    {r.description && <p className="text-xs text-muted-foreground mt-0.5">{r.description as string}</p>}
+                    <div className="text-xs text-muted-foreground flex flex-wrap gap-3">
+                      {r.domain_pattern && <span>Domain: <code className="text-foreground">{r.domain_pattern as string}</code></span>}
+                      {r.max_per_minute && <span>{r.max_per_minute as number}/min</span>}
+                      {r.max_per_hour && <span>{r.max_per_hour as number}/hr</span>}
+                      {r.max_per_day && <span>{r.max_per_day as number}/day</span>}
+                      {r.notes && <span className="text-muted-foreground">{r.notes as string}</span>}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Switch checked={r.is_active as boolean} onCheckedChange={() => toggle(r.id as string, r.is_active as boolean)} />
@@ -126,36 +142,63 @@ export default function RestrictionsPage() {
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Add Restriction</DialogTitle></DialogHeader>
           <div className="flex flex-col gap-4 pt-2">
             <div className="flex flex-col gap-1.5">
-              <Label>Type</Label>
-              <Select value={form.type} onValueChange={v => setForm({ ...form, type: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {RESTRICTION_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
               <Label>Name</Label>
-              <Input placeholder="Daily Send Cap" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+              <Input placeholder="Gmail Rate Limit" value={f('name') as string} onChange={e => setF('name', e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label>Rule Type</Label>
+                <Select value={f('rule_type') as string} onValueChange={v => setF('rule_type', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{RULE_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Applies To</Label>
+                <Select value={f('applies_to') as string} onValueChange={v => setF('applies_to', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all_users">All Users</SelectItem>
+                    <SelectItem value="plan">By Plan</SelectItem>
+                    <SelectItem value="specific_user">Specific User</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {['domain', 'email_pattern'].includes(f('rule_type') as string) && (
+              <div className="flex flex-col gap-1.5">
+                <Label>Domain Pattern</Label>
+                <Input placeholder="gmail.com or %@hotmail.%" value={f('domain_pattern') as string} onChange={e => setF('domain_pattern', e.target.value)} />
+              </div>
+            )}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label>Max/Min</Label>
+                <Input type="number" placeholder="60" value={f('max_per_minute') as string} onChange={e => setF('max_per_minute', e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Max/Hour</Label>
+                <Input type="number" placeholder="1000" value={f('max_per_hour') as string} onChange={e => setF('max_per_hour', e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Max/Day</Label>
+                <Input type="number" placeholder="10000" value={f('max_per_day') as string} onChange={e => setF('max_per_day', e.target.value)} />
+              </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label>Value</Label>
-              <Input placeholder="e.g. 10000 or spam.com" value={form.value} onChange={e => setForm({ ...form, value: e.target.value })} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Description (optional)</Label>
-              <Textarea placeholder="Why this restriction exists..." value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={2} />
+              <Label>Notes (optional)</Label>
+              <Textarea rows={2} value={f('notes') as string} onChange={e => setF('notes', e.target.value)} placeholder="Internal note about this restriction..." />
             </div>
             <div className="flex items-center justify-between">
               <Label>Active immediately</Label>
-              <Switch checked={form.is_active} onCheckedChange={v => setForm({ ...form, is_active: v })} />
+              <Switch checked={f('is_active') as boolean} onCheckedChange={v => setF('is_active', v)} />
             </div>
             <Button onClick={save} disabled={saving}>
-              {saving ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : null}
+              {saving && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
               Add Restriction
             </Button>
           </div>

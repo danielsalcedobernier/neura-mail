@@ -30,8 +30,8 @@ const jobStatusColor: Record<string, string> = {
 }
 
 export default function VerificationPage() {
-  const { data: jobs, isLoading: jobsLoading } = useSWR('/api/verification/jobs', fetcher, { refreshInterval: 4000 })
-  const { data: lists } = useSWR('/api/lists?status=ready', fetcher)
+  const { data: jobs, isLoading: jobsLoading } = useSWR('/api/verification', fetcher, { refreshInterval: 4000 })
+  const { data: lists } = useSWR('/api/lists', fetcher)
   const { data: credits } = useSWR('/api/credits', fetcher)
   const [selectedList, setSelectedList] = useState('')
   const [starting, setStarting] = useState(false)
@@ -40,7 +40,7 @@ export default function VerificationPage() {
     if (!selectedList) { toast.error('Select a list to verify'); return }
     setStarting(true)
     try {
-      const res = await fetch('/api/verification/jobs', {
+      const res = await fetch('/api/verification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ list_id: selectedList }),
@@ -48,20 +48,21 @@ export default function VerificationPage() {
       const json = await res.json()
       if (!res.ok) { toast.error(json.error || 'Failed to start'); return }
       toast.success('Verification job queued!')
-      mutate('/api/verification/jobs')
+      mutate('/api/verification')
       setSelectedList('')
     } catch { toast.error('Failed to start verification') }
     finally { setStarting(false) }
   }
 
   const pauseJob = async (id: string) => {
-    await fetch(`/api/verification/jobs/${id}/pause`, { method: 'POST' })
-    mutate('/api/verification/jobs')
+    await fetch(`/api/verification/${id}`, { method: 'DELETE' })
+    mutate('/api/verification')
   }
 
   const resumeJob = async (id: string) => {
-    await fetch(`/api/verification/jobs/${id}/resume`, { method: 'POST' })
-    mutate('/api/verification/jobs')
+    // resume not supported yet; show info
+    toast.info('Resume coming soon')
+    mutate('/api/verification')
   }
 
   return (

@@ -46,8 +46,8 @@ export default function NewCampaignPage() {
       const json = await res.json()
       if (!res.ok) { toast.error(json.error || 'AI generation failed'); return }
       if (json.data?.subject) setSubject(json.data.subject)
-      if (json.data?.html) setHtmlContent(json.data.html)
-      if (json.data?.text) setTextContent(json.data.text)
+      if (json.data?.htmlContent) setHtmlContent(json.data.htmlContent)
+      if (json.data?.textContent) setTextContent(json.data.textContent)
       toast.success('Campaign content generated!')
     } catch { toast.error('AI generation failed') }
     finally { setGenerating(false) }
@@ -69,12 +69,19 @@ export default function NewCampaignPage() {
           name, subject, html_content: htmlContent, text_content: textContent,
           list_id: listId, smtp_server_id: smtpId,
           scheduled_at: scheduledAt || null,
-          send_now: send,
         }),
       })
       const json = await res.json()
       if (!res.ok) { toast.error(json.error || 'Save failed'); return }
-      toast.success(send ? 'Campaign is sending!' : scheduledAt ? 'Campaign scheduled!' : 'Campaign saved as draft')
+      const campaignId = json.data?.id
+      if (send && campaignId) {
+        const sendRes = await fetch(`/api/campaigns/${campaignId}/send`, { method: 'POST' })
+        const sendJson = await sendRes.json()
+        if (!sendRes.ok) toast.error(sendJson.error || 'Campaign saved but send failed')
+        else toast.success(`Campaign is sending to ${sendJson.data?.totalRecipients?.toLocaleString()} recipients!`)
+      } else {
+        toast.success(scheduledAt ? 'Campaign scheduled!' : 'Campaign saved as draft')
+      }
       router.push('/dashboard/campaigns')
     } catch { toast.error('Save failed') }
     finally { setSaving(false) }

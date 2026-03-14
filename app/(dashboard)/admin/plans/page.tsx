@@ -18,7 +18,7 @@ const emptyPack = {
 }
 
 export default function AdminPlansPage() {
-  const { data: packs, isLoading } = useSWR('/api/admin/credit-packs', fetcher)
+  const { data: packs, isLoading } = useSWR('/api/admin/plans', fetcher)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null)
   const [form, setForm] = useState<Record<string, unknown>>(emptyPack)
@@ -37,28 +37,27 @@ export default function AdminPlansPage() {
     try {
       const body = {
         name: form.name,
-        credits: Number(form.credits),
-        bonus_credits: Number(form.bonus_credits) || 0,
+        credits_included: Number(form.credits),
         price_usd: Number(form.price_usd),
         is_active: form.is_active,
       }
-      const url = editing ? `/api/admin/credit-packs/${editing.id}` : '/api/admin/credit-packs'
+      const url = editing ? `/api/admin/plans/${editing.id}` : '/api/admin/plans'
       const method = editing ? 'PATCH' : 'POST'
       const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const json = await res.json()
       if (!res.ok) { toast.error(json.error || 'Save failed'); return }
       toast.success(editing ? 'Pack updated' : 'Pack created')
-      mutate('/api/admin/credit-packs')
-      setOpen(false)
-    } catch { toast.error('Save failed') }
-    finally { setSaving(false) }
+    mutate('/api/admin/plans')
+    setOpen(false)
+  } catch { toast.error('Save failed') }
+  finally { setSaving(false) }
   }
 
   const deletePack = async (id: string) => {
-    if (!confirm('Delete this credit pack?')) return
-    await fetch(`/api/admin/credit-packs/${id}`, { method: 'DELETE' })
-    toast.success('Pack deleted')
-    mutate('/api/admin/credit-packs')
+    if (!confirm('Delete this plan?')) return
+    await fetch(`/api/admin/plans/${id}`, { method: 'DELETE' })
+    toast.success('Plan deleted')
+    mutate('/api/admin/plans')
   }
 
   return (
@@ -81,15 +80,15 @@ export default function AdminPlansPage() {
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <p className="font-medium text-foreground">{p.name as string}</p>
-                    <p className="text-2xl font-bold text-foreground mt-1">{Number(p.credits).toLocaleString()}</p>
-                    {Number(p.bonus_credits) > 0 && (
-                      <p className="text-xs text-green-600">+{Number(p.bonus_credits).toLocaleString()} bonus</p>
+                    <p className="text-2xl font-bold text-foreground mt-1">{Number(p.credits_included).toLocaleString()}</p>
+                    {Number(p.active_users) > 0 && (
+                      <p className="text-xs text-blue-600">{Number(p.active_users)} active users</p>
                     )}
                   </div>
                   <p className="text-xl font-bold text-primary">${Number(p.price_usd).toFixed(2)}</p>
                 </div>
                 <p className="text-xs text-muted-foreground mb-3">
-                  ${((Number(p.price_usd) / (Number(p.credits) + Number(p.bonus_credits))) * 1000).toFixed(3)} / 1k credits
+                  ${(Number(p.credits_included) > 0 ? ((Number(p.price_usd) / Number(p.credits_included)) * 1000).toFixed(3) : '—')} / 1k credits
                 </p>
                 <div className="flex items-center justify-between mt-2">
                   <span className={`text-xs px-2 py-0.5 rounded-full ${p.is_active ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'}`}>

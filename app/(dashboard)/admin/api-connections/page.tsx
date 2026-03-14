@@ -76,7 +76,7 @@ export default function ApiConnectionsPage() {
   const save = async () => {
     setSaving(true)
     try {
-      const body = { name: name || serviceType, service_name: serviceType, credentials: creds, extra_config: extra, is_active: isActive }
+      const body = { display_name: name || serviceType, service_name: serviceType, credentials: creds, extra_config: extra, is_active: isActive }
       const url = editing ? `/api/admin/api-connections/${editing.id}` : '/api/admin/api-connections'
       const method = editing ? 'PATCH' : 'POST'
       const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
