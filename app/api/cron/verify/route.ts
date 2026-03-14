@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import sql from '@/lib/db'
 import { withCronLock } from '@/lib/cron'
-import { checkCacheFirst, storeInCache, submitBatch, pollBatch } from '@/lib/mailsso'
+import { checkCacheBulk, storeBatchInCache, submitBatch, pollBatch } from '@/lib/mailsso'
 import { ok, error } from '@/lib/api'
 
 const BATCH_SIZE = 50000 // mails.so supports up to 50k per batch
@@ -54,32 +54,44 @@ export async function GET(request: NextRequest) {
       `
 
       if (items.length > 0) {
-        // Bulk update job items
-        for (const item of items) {
-          const r = resultMap.get(item.email.toLowerCase())
-          if (!r) continue
+        // Bulk update job items — 1 query using UNNEST
+        const ids = items.map((i: { id: string }) => i.id)
+        const matched = items
+          .map((i: { id: string; email: string }) => ({
+            id: i.id,
+            r: resultMap.get(i.email.toLowerCase()),
+          }))
+          .filter(x => x.r)
+
+        if (matched.length > 0) {
           await sql`
             UPDATE verification_job_items SET
-              status = 'completed', result = ${r.status},
-              from_cache = false, credits_charged = 1,
+              status = 'completed',
+              result = v.result,
+              from_cache = false,
+              credits_charged = 1,
               processed_at = NOW()
-            WHERE id = ${item.id}
+            FROM (
+              SELECT UNNEST(${matched.map(x => x.id)}::uuid[])   AS id,
+                     UNNEST(${matched.map(x => x.r!.status)}::text[]) AS result
+            ) AS v
+            WHERE verification_job_items.id = v.id::uuid
           `
         }
 
-        // Bulk update contact verification statuses in one query
-        const emailResults = results.map(r => ({ email: r.email.toLowerCase(), status: r.status, score: r.score }))
-        for (const r of emailResults) {
-          await storeInCache(r as Parameters<typeof storeInCache>[0], job.user_id)
-        }
+        // Store all results in cache — 1 bulk INSERT
+        await storeBatchInCache(results, job.user_id)
 
+        // Bulk update contact statuses — 1 query
+        const emails = results.map(r => r.email.toLowerCase())
+        const statuses = results.map(r => r.status)
         await sql`
           UPDATE email_list_contacts SET
             verification_status = v.status::text,
             verified_at = NOW()
           FROM (
-            SELECT UNNEST(${emailResults.map(r => r.email)}::text[]) AS email,
-                   UNNEST(${emailResults.map(r => r.status)}::text[]) AS status
+            SELECT UNNEST(${emails}::text[]) AS email,
+                   UNNEST(${statuses}::text[]) AS status
           ) AS v
           WHERE email_list_contacts.email = v.email
             AND email_list_contacts.user_id = ${job.user_id}
@@ -104,32 +116,32 @@ export async function GET(request: NextRequest) {
 
     if (items.length === 0) return await finalizeJob(job)
 
-    // Split into cached vs needs API call
-    const cacheResults: { id: string; email: string; result: Awaited<ReturnType<typeof checkCacheFirst>> }[] = []
-    const needsApi: { id: string; email: string }[] = []
+    // 1 query for all emails — split cache hits vs needs API
+    const cacheMap = await checkCacheBulk(items.map((i: { email: string }) => i.email))
+    const cacheHits = items.filter((i: { email: string }) => cacheMap.has(i.email.toLowerCase()))
+    const needsApi  = items.filter((i: { email: string }) => !cacheMap.has(i.email.toLowerCase()))
 
-    await Promise.all(items.map(async (item: { id: string; email: string }) => {
-      const cached = await checkCacheFirst(item.email)
-      if (cached) cacheResults.push({ id: item.id, email: item.email, result: cached })
-      else needsApi.push(item)
-    }))
-
-    // Process cache hits immediately (no API cost)
-    if (cacheResults.length > 0) {
-      for (const c of cacheResults) {
-        await sql`
-          UPDATE verification_job_items SET
-            status = 'completed', result = ${c.result!.status},
-            from_cache = true, credits_charged = 0, processed_at = NOW()
-          WHERE id = ${c.id}
-        `
-      }
+    // Process cache hits — 2 bulk queries total
+    if (cacheHits.length > 0) {
+      await sql`
+        UPDATE verification_job_items SET
+          status = 'completed',
+          result = v.result,
+          from_cache = true,
+          credits_charged = 0,
+          processed_at = NOW()
+        FROM (
+          SELECT UNNEST(${cacheHits.map((i: { id: string }) => i.id)}::uuid[])                                       AS id,
+                 UNNEST(${cacheHits.map((i: { email: string }) => cacheMap.get(i.email.toLowerCase())!.status)}::text[]) AS result
+        ) AS v
+        WHERE verification_job_items.id = v.id::uuid
+      `
       await sql`
         UPDATE email_list_contacts SET
           verification_status = v.status::text, verified_at = NOW()
         FROM (
-          SELECT UNNEST(${cacheResults.map(c => c.email)}::text[]) AS email,
-                 UNNEST(${cacheResults.map(c => c.result!.status)}::text[]) AS status
+          SELECT UNNEST(${cacheHits.map((i: { email: string }) => i.email.toLowerCase())}::text[])                         AS email,
+                 UNNEST(${cacheHits.map((i: { email: string }) => cacheMap.get(i.email.toLowerCase())!.status)}::text[]) AS status
         ) AS v
         WHERE email_list_contacts.email = v.email
           AND email_list_contacts.user_id = ${job.user_id}

@@ -123,22 +123,85 @@ export async function checkCacheFirst(email: string): Promise<VerificationResult
     WHERE email = ${email.toLowerCase()} AND expires_at > NOW()
   `
   if (!rows[0]) return null
-
-  const cached = rows[0]
-  // Bump hit count
   await sql`UPDATE global_email_cache SET hit_count = hit_count + 1 WHERE email = ${email.toLowerCase()}`
+  return rowToResult(rows[0])
+}
 
+// Bulk cache lookup — 1 query for up to 50k emails
+export async function checkCacheBulk(
+  emails: string[]
+): Promise<Map<string, VerificationResult>> {
+  if (emails.length === 0) return new Map()
+  const normalized = emails.map(e => e.toLowerCase())
+  const rows = await sql`
+    SELECT * FROM global_email_cache
+    WHERE email = ANY(${normalized}::text[]) AND expires_at > NOW()
+  `
+  // Bump hit counts in one query
+  if (rows.length > 0) {
+    const hits = rows.map((r: Record<string, unknown>) => r.email as string)
+    await sql`
+      UPDATE global_email_cache SET hit_count = hit_count + 1
+      WHERE email = ANY(${hits}::text[])
+    `
+  }
+  return new Map(rows.map((r: Record<string, unknown>) => [r.email as string, rowToResult(r)]))
+}
+
+// Bulk insert/update cache results — 1 query for the whole batch
+export async function storeBatchInCache(
+  results: VerificationResult[],
+  verifiedByUserId?: string
+): Promise<void> {
+  if (results.length === 0) return
+  const values = results.map(r => ({
+    email: r.email.toLowerCase(),
+    verification_status: r.status,
+    verification_score: r.score,
+    mx_found: r.mx_found,
+    smtp_valid: r.smtp_valid,
+    is_disposable: r.is_disposable,
+    is_role_based: r.is_role_based,
+    is_catch_all: r.is_catch_all,
+    provider: r.provider,
+    raw_response: JSON.stringify(r.raw),
+    verified_by_user_id: verifiedByUserId || null,
+    expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+  }))
+  await sql`
+    INSERT INTO global_email_cache ${sql(values,
+      'email', 'verification_status', 'verification_score',
+      'mx_found', 'smtp_valid', 'is_disposable', 'is_role_based', 'is_catch_all',
+      'provider', 'raw_response', 'verified_by_user_id', 'expires_at'
+    )}
+    ON CONFLICT (email) DO UPDATE SET
+      verification_status  = EXCLUDED.verification_status,
+      verification_score   = EXCLUDED.verification_score,
+      mx_found             = EXCLUDED.mx_found,
+      smtp_valid           = EXCLUDED.smtp_valid,
+      is_disposable        = EXCLUDED.is_disposable,
+      is_role_based        = EXCLUDED.is_role_based,
+      is_catch_all         = EXCLUDED.is_catch_all,
+      provider             = EXCLUDED.provider,
+      raw_response         = EXCLUDED.raw_response,
+      verified_at          = NOW(),
+      expires_at           = EXCLUDED.expires_at,
+      hit_count            = global_email_cache.hit_count + 1
+  `
+}
+
+function rowToResult(r: Record<string, unknown>): VerificationResult {
   return {
-    email: cached.email,
-    status: cached.verification_status,
-    score: Number(cached.verification_score) || 0,
-    mx_found: cached.mx_found ?? false,
-    smtp_valid: cached.smtp_valid ?? false,
-    is_disposable: cached.is_disposable ?? false,
-    is_role_based: cached.is_role_based ?? false,
-    is_catch_all: cached.is_catch_all ?? false,
-    provider: cached.provider || '',
-    raw: cached.raw_response || {},
+    email: r.email as string,
+    status: r.verification_status as VerificationResult['status'],
+    score: Number(r.verification_score) || 0,
+    mx_found: (r.mx_found as boolean) ?? false,
+    smtp_valid: (r.smtp_valid as boolean) ?? false,
+    is_disposable: (r.is_disposable as boolean) ?? false,
+    is_role_based: (r.is_role_based as boolean) ?? false,
+    is_catch_all: (r.is_catch_all as boolean) ?? false,
+    provider: (r.provider as string) || '',
+    raw: (r.raw_response as Record<string, unknown>) || {},
   }
 }
 
