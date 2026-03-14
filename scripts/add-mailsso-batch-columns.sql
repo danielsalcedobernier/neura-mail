@@ -1,0 +1,3 @@
+ALTER TABLE verification_jobs
+  ADD COLUMN IF NOT EXISTS mailsso_batch_id TEXT DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS mailsso_batch_submitted_at TIMESTAMPTZ DEFAULT NULL;

@@ -50,28 +50,71 @@ export async function verifyEmail(email: string): Promise<VerificationResult> {
   }
 
   const data = await res.json()
+  return mapResult(email, data.data || data)
+}
 
-  // Map mails.so response to our internal format
-  const result = data.data || data
+function mapResult(email: string, r: Record<string, unknown>): VerificationResult {
   let status: VerificationResult['status'] = 'unknown'
-
-  if (result.result === 'deliverable') status = 'valid'
-  else if (result.result === 'undeliverable') status = 'invalid'
-  else if (result.result === 'risky') status = 'risky'
-  else if (result.result === 'catch_all') status = 'catch_all'
+  if (r.result === 'deliverable') status = 'valid'
+  else if (r.result === 'undeliverable') status = 'invalid'
+  else if (r.result === 'risky') status = 'risky'
+  else if (r.result === 'catch_all') status = 'catch_all'
 
   return {
     email,
     status,
-    score: result.score ?? 0,
-    mx_found: result.mx?.found ?? false,
-    smtp_valid: result.smtp?.valid ?? false,
-    is_disposable: result.is_disposable ?? false,
-    is_role_based: result.is_role ?? false,
-    is_catch_all: result.is_catch_all ?? false,
-    provider: result.mx?.provider || '',
-    raw: data,
+    score: (r.score as number) ?? 0,
+    mx_found: (r.isv_mx as boolean) ?? false,
+    smtp_valid: (r.isv_format as boolean) ?? false,
+    is_disposable: false,
+    is_role_based: !(r.isv_nogeneric as boolean),
+    is_catch_all: !(r.isv_nocatchall as boolean),
+    provider: (r.mx_record as string) || '',
+    raw: r,
   }
+}
+
+// Submit up to 50,000 emails to mails.so batch API
+// Returns the async batch job id — results are not immediate
+export async function submitBatch(emails: string[]): Promise<string> {
+  const config = await getConfig()
+
+  const res = await fetch(`${config.baseUrl}/batch`, {
+    method: 'POST',
+    headers: {
+      'x-mails-api-key': config.apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ emails }),
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(`mails.so batch error: ${res.status} — ${err.error || res.statusText}`)
+  }
+
+  const data = await res.json()
+  return data.id as string
+}
+
+// Poll for batch results — returns null if still processing
+export async function pollBatch(batchId: string): Promise<VerificationResult[] | null> {
+  const config = await getConfig()
+
+  const res = await fetch(`${config.baseUrl}/batch/${batchId}`, {
+    headers: { 'x-mails-api-key': config.apiKey },
+  })
+
+  if (!res.ok) throw new Error(`mails.so poll error: ${res.status}`)
+
+  const data = await res.json()
+
+  // Still processing — finished_at is null
+  if (!data.finished_at) return null
+
+  return (data.emails as Record<string, unknown>[]).map(r =>
+    mapResult(r.email as string, r)
+  )
 }
 
 export async function checkCacheFirst(email: string): Promise<VerificationResult | null> {
