@@ -170,7 +170,7 @@ export async function GET(request: NextRequest) {
       `
 
       return {
-        cacheHits: cacheResults.length,
+        cacheHits: cacheHits.length,
         submittedToBatch: needsApi.length,
         batchId,
       }
