@@ -7,9 +7,9 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
-  generator: 'v0.app',
+  title: 'NeuraMail — Email Verification & Campaign Platform',
+  description: 'Verify email lists, send campaigns, and manage your email marketing infrastructure.',
+  generator: 'NeuraMail',
   icons: {
     icon: [
       {
