@@ -21,7 +21,6 @@ interface Notification {
   title: string
   message: string
   type: string
-  is_global: boolean
   user_id?: string
   created_at: string
 }

@@ -16,19 +16,34 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { is_active, role, email_verified, add_credits, remove_credits, plan_id } = body
 
     if (add_credits && add_credits > 0) {
+      // Upsert user_credits row then record transaction
+      const before = await sql`SELECT balance FROM user_credits WHERE user_id = ${id}`
+      const prevBalance = Number(before[0]?.balance ?? 0)
+      const newBalance = prevBalance + add_credits
       await sql`
-        UPDATE user_credits SET balance = balance + ${add_credits}, updated_at = NOW()
-        WHERE user_id = ${id}
+        INSERT INTO user_credits (user_id, balance, total_purchased, total_used)
+        VALUES (${id}, ${add_credits}, ${add_credits}, 0)
+        ON CONFLICT (user_id) DO UPDATE
+        SET balance = user_credits.balance + ${add_credits},
+            total_purchased = user_credits.total_purchased + ${add_credits},
+            updated_at = NOW()
       `
       await sql`
-        INSERT INTO credit_transactions (user_id, amount, type, description, status, processed_at)
-        VALUES (${id}, ${add_credits}, 'admin_grant', 'Credits granted by admin', 'completed', NOW())
+        INSERT INTO credit_transactions (user_id, amount, type, description, balance_after)
+        VALUES (${id}, ${add_credits}, 'bonus', 'Credits granted by admin', ${newBalance})
       `
     }
     if (remove_credits && remove_credits > 0) {
+      const before = await sql`SELECT balance FROM user_credits WHERE user_id = ${id}`
+      const prevBalance = Number(before[0]?.balance ?? 0)
+      const deducted = Math.min(prevBalance, remove_credits)
       await sql`
         UPDATE user_credits SET balance = GREATEST(0, balance - ${remove_credits}), updated_at = NOW()
         WHERE user_id = ${id}
+      `
+      await sql`
+        INSERT INTO credit_transactions (user_id, amount, type, description, balance_after)
+        VALUES (${id}, ${-deducted}, 'adjustment', 'Credits removed by admin', ${Math.max(0, prevBalance - deducted)})
       `
     }
 
@@ -36,19 +51,29 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       const plan = await sql`SELECT * FROM plans WHERE id = ${plan_id}`
       if (plan[0]) {
         await sql`
-          UPDATE user_plans SET status = 'expired', updated_at = NOW()
+          UPDATE user_plans SET status = 'expired'
           WHERE user_id = ${id} AND status = 'active'
         `
         await sql`
-          INSERT INTO user_plans (user_id, plan_id, status, started_at, expires_at)
-          VALUES (${id}, ${plan_id}, 'active', NOW(),
-            CASE WHEN ${plan[0].duration_days} IS NOT NULL THEN NOW() + (${plan[0].duration_days} || ' days')::INTERVAL ELSE NULL END)
+          INSERT INTO user_plans (user_id, plan_id, status, started_at)
+          VALUES (${id}, ${plan_id}, 'active', NOW())
         `
-        // Grant plan credits
-        if (plan[0].credits_included > 0) {
+        // Grant plan credits if verification plan
+        const planCredits = Number(plan[0].credits ?? 0)
+        if (planCredits > 0) {
+          const before = await sql`SELECT balance FROM user_credits WHERE user_id = ${id}`
+          const prevBalance = Number(before[0]?.balance ?? 0)
           await sql`
-            UPDATE user_credits SET balance = balance + ${plan[0].credits_included}, updated_at = NOW()
-            WHERE user_id = ${id}
+            INSERT INTO user_credits (user_id, balance, total_purchased, total_used)
+            VALUES (${id}, ${planCredits}, ${planCredits}, 0)
+            ON CONFLICT (user_id) DO UPDATE
+            SET balance = user_credits.balance + ${planCredits},
+                total_purchased = user_credits.total_purchased + ${planCredits},
+                updated_at = NOW()
+          `
+          await sql`
+            INSERT INTO credit_transactions (user_id, amount, type, description, balance_after)
+            VALUES (${id}, ${planCredits}, 'purchase', 'Plan credits from admin assignment', ${prevBalance + planCredits})
           `
         }
       }

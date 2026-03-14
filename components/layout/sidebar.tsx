@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   Mail, LayoutDashboard, CheckCircle, Send, Server, CreditCard,
   Settings, ChevronLeft, ChevronRight, LogOut, Users, Shield,
-  BarChart3, Database, Zap, Bell, FileText, Key,
+  BarChart3, Database, Zap, Bell, FileText, Key, Package,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -34,6 +34,7 @@ const adminNav: NavItem[] = [
   { label: 'Overview', href: '/admin', icon: LayoutDashboard },
   { label: 'Users', href: '/admin/users', icon: Users },
   { label: 'Plans', href: '/admin/plans', icon: CreditCard },
+  { label: 'Credit Packs', href: '/admin/credit-packs', icon: Package },
   { label: 'Restrictions', href: '/admin/restrictions', icon: Shield },
   { label: 'Dedicated Servers', href: '/admin/servers', icon: Server },
   { label: 'API Connections', href: '/admin/api-connections', icon: Database },

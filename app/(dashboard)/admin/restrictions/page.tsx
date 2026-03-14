@@ -15,17 +15,10 @@ import { toast } from 'sonner'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
 
-const RULE_TYPES = [
-  { value: 'domain', label: 'Domain Pattern' },
-  { value: 'rate_limit', label: 'Rate Limit' },
-  { value: 'global', label: 'Global Limit' },
-  { value: 'email_pattern', label: 'Email Pattern' },
-]
-
 const emptyForm = {
-  name: '', rule_type: 'domain', domain_pattern: '', max_per_minute: '',
+  name: '', domain_pattern: '', max_per_minute: '',
   max_per_hour: '', max_per_day: '', is_active: true, notes: '',
-  applies_to: 'all_users',
+  applies_to: 'all',
 }
 
 export default function RestrictionsPage() {
@@ -49,7 +42,7 @@ export default function RestrictionsPage() {
         max_per_hour: f('max_per_hour') ? Number(f('max_per_hour')) : null,
         max_per_day: f('max_per_day') ? Number(f('max_per_day')) : null,
         is_active: f('is_active'),
-        applies_to: f('applies_to') === 'all_users' ? 'all' : f('applies_to'),
+        applies_to: f('applies_to') || 'all',
       }
       const res = await fetch('/api/admin/restrictions', {
         method: 'POST',
@@ -83,8 +76,6 @@ export default function RestrictionsPage() {
     mutate('/api/admin/restrictions')
   }
 
-  const typeLabel = (rt: string) => RULE_TYPES.find(t => t.value === rt)?.label || rt
-
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -108,7 +99,7 @@ export default function RestrictionsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <p className="font-medium text-sm text-foreground">{r.name as string}</p>
-                      <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{typeLabel(r.rule_type as string)}</span>
+                      {r.provider_name && <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{r.provider_name as string}</span>}
                       <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary">{r.applies_to as string}</span>
                     </div>
                     <div className="text-xs text-muted-foreground flex flex-wrap gap-3">
@@ -150,30 +141,21 @@ export default function RestrictionsPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
-                <Label>Rule Type</Label>
-                <Select value={f('rule_type') as string} onValueChange={v => setF('rule_type', v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{RULE_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-col gap-1.5">
                 <Label>Applies To</Label>
                 <Select value={f('applies_to') as string} onValueChange={v => setF('applies_to', v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all_users">All Users</SelectItem>
+                    <SelectItem value="all">All Users</SelectItem>
                     <SelectItem value="plan">By Plan</SelectItem>
-                    <SelectItem value="specific_user">Specific User</SelectItem>
+                    <SelectItem value="user">Specific User</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-            {['domain', 'email_pattern'].includes(f('rule_type') as string) && (
               <div className="flex flex-col gap-1.5">
                 <Label>Domain Pattern</Label>
-                <Input placeholder="gmail.com or %@hotmail.%" value={f('domain_pattern') as string} onChange={e => setF('domain_pattern', e.target.value)} />
+                <Input placeholder="%@gmail.com" value={f('domain_pattern') as string} onChange={e => setF('domain_pattern', e.target.value)} />
               </div>
-            )}
+            </div>
             <div className="grid grid-cols-3 gap-3">
               <div className="flex flex-col gap-1.5">
                 <Label>Max/Min</Label>
