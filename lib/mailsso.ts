@@ -82,8 +82,10 @@ function mapResult(email: string, r: Record<string, unknown>): VerificationResul
 // Returns the async batch job id — results are not immediate
 export async function submitBatch(emails: string[]): Promise<string> {
   const config = await getConfig()
+  const batchUrl = `${config.baseUrl}/batch`.replace(/\/+/g, '/').replace('https:/', 'https://')
+  console.log(`[mailsso] submitBatch url=${batchUrl} emails=${emails.length} apiKey=${config.apiKey ? config.apiKey.slice(0,8)+'...' : 'MISSING'}`)
 
-  const res = await fetch(`${config.baseUrl}/batch`, {
+  const res = await fetch(batchUrl, {
     method: 'POST',
     headers: {
       'x-mails-api-key': config.apiKey,
@@ -93,12 +95,16 @@ export async function submitBatch(emails: string[]): Promise<string> {
   })
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(`mails.so batch error: ${res.status} — ${err.error || res.statusText}`)
+    const rawText = await res.text().catch(() => res.statusText)
+    console.error(`[mailsso] submitBatch failed: status=${res.status} url=${batchUrl} body=${rawText}`)
+    let errMsg = res.statusText
+    try { errMsg = JSON.parse(rawText)?.error || rawText } catch {}
+    throw new Error(`mails.so batch error: ${res.status} — ${errMsg}`)
   }
 
   const data = await res.json()
-  return data.id as string
+  console.log(`[mailsso] submitBatch success: batchId=${data.id ?? data.data?.id}`)
+  return (data.id ?? data.data?.id) as string
 }
 
 // Poll for batch results — returns null if still processing
