@@ -24,8 +24,11 @@ export async function GET(request: NextRequest) {
       WHERE status = 'running'
         AND next_run_at < NOW() - INTERVAL '30 minutes'
     `
-    for (const stuck of stuckJobs) {
-      await failJob(stuck, 'Job stuck: no progress for 30 minutes')
+    if (stuckJobs.length > 0) {
+      console.warn(`[cron/verify] Found ${stuckJobs.length} stuck job(s) — failing and refunding`)
+      for (const stuck of stuckJobs) {
+        await failJob(stuck, 'Job stuck: no progress for 30 minutes')
+      }
     }
 
     // Pick ALL queued/running jobs that are due — process in parallel
@@ -38,7 +41,12 @@ export async function GET(request: NextRequest) {
       ORDER BY vj.created_at ASC
     `
 
-    if (jobs.length === 0) return { processed: 0, message: 'No jobs queued' }
+    if (jobs.length === 0) {
+      console.log('[cron/verify] No jobs due — skipping')
+      return { processed: 0, message: 'No jobs queued' }
+    }
+
+    console.log(`[cron/verify] Processing ${jobs.length} job(s): ${jobs.map((j: { id: string }) => j.id).join(', ')}`)
 
     // Mark all as running before starting parallel processing
     await sql`
@@ -47,6 +55,7 @@ export async function GET(request: NextRequest) {
     `
 
     const results = await Promise.all(jobs.map((job: typeof jobs[0]) => processJob(job)))
+    console.log('[cron/verify] Tick results:', JSON.stringify(results))
     return { processed: jobs.length, results }
   })
 
@@ -60,12 +69,16 @@ export async function GET(request: NextRequest) {
 }
 
 async function processJob(job: { id: string; user_id: string; credits_reserved: number; credits_used: number; total_emails: number; mailsso_batch_id: string | null; mailsso_batch_submitted_at: string | null }) {
+    console.log(`[cron/verify] processJob start: id=${job.id} total_emails=${job.total_emails} batch_id=${job.mailsso_batch_id ?? 'none'}`)
 
     // ── PHASE B: Poll existing batch job ────────────────────────────────────
     if (job.mailsso_batch_id) {
-      // If batch has been waiting too long (>2h), fail and refund
       const submittedAt = job.mailsso_batch_submitted_at ? new Date(job.mailsso_batch_submitted_at as string).getTime() : 0
-      if (submittedAt && Date.now() - submittedAt > 2 * 60 * 60 * 1000) {
+      const waitedMs = Date.now() - submittedAt
+      console.log(`[cron/verify] Phase B — polling batch_id=${job.mailsso_batch_id} waited=${Math.round(waitedMs/1000)}s`)
+
+      if (submittedAt && waitedMs > 2 * 60 * 60 * 1000) {
+        console.error(`[cron/verify] Batch timeout job=${job.id}`)
         return await failJob(job, 'Batch timeout: mails.so did not respond within 2 hours')
       }
 
@@ -74,18 +87,19 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
         results = await pollBatch(job.mailsso_batch_id)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        // Transient errors: retry next tick. Permanent errors: fail and refund.
+        console.error(`[cron/verify] pollBatch error job=${job.id}:`, msg)
         const isPermanent = msg.includes('401') || msg.includes('403') || msg.includes('not found') || msg.includes('404')
         if (isPermanent) return await failJob(job, `mails.so poll error: ${msg}`)
         await sql`UPDATE verification_jobs SET next_run_at = NOW() + INTERVAL '60 seconds' WHERE id = ${job.id}`
         return { retrying: true, error: msg }
       }
 
-      // Still processing on mails.so side — come back next cron tick
       if (results === null) {
+        console.log(`[cron/verify] Batch still processing — job=${job.id} will retry in 30s`)
         await sql`UPDATE verification_jobs SET next_run_at = NOW() + INTERVAL '30 seconds' WHERE id = ${job.id}`
         return { waiting: true, batchId: job.mailsso_batch_id }
       }
+      console.log(`[cron/verify] Batch ready — job=${job.id} results=${results.length}`)
 
       // Results ready — save them all in bulk
       const resultMap = new Map(results.map(r => [r.email.toLowerCase(), r]))
@@ -156,13 +170,17 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
       ORDER BY created_at ASC
       LIMIT ${BATCH_SIZE}
     `
+    console.log(`[cron/verify] Phase A — job=${job.id} pending_items=${items.length}`)
 
-    if (items.length === 0) return await finalizeJob(job)
+    if (items.length === 0) {
+      console.log(`[cron/verify] No pending items — finalizing job=${job.id}`)
+      return await finalizeJob(job)
+    }
 
-    // 1 query for all emails — split cache hits vs needs API
     const cacheMap = await checkCacheBulk(items.map((i: { email: string }) => i.email))
     const cacheHits = items.filter((i: { email: string }) => cacheMap.has(i.email.toLowerCase()))
     const needsApi  = items.filter((i: { email: string }) => !cacheMap.has(i.email.toLowerCase()))
+    console.log(`[cron/verify] Cache check — job=${job.id} hits=${cacheHits.length} needs_api=${needsApi.length}`)
 
     // Process cache hits — cache saves the API call but still costs 1 credit
     if (cacheHits.length > 0) {
@@ -199,20 +217,21 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
         WHERE id = ANY(${needsApi.map(i => i.id)}::uuid[])
       `
 
+      console.log(`[cron/verify] Submitting ${needsApi.length} emails to mails.so — job=${job.id}`)
       let batchId: string
       try {
         batchId = await submitBatch(needsApi.map(i => i.email))
+        console.log(`[cron/verify] Batch submitted — job=${job.id} batchId=${batchId}`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
+        console.error(`[cron/verify] submitBatch error job=${job.id}:`, msg)
         const isPermanent = msg.includes('401') || msg.includes('403') || msg.includes('not configured')
         if (isPermanent) return await failJob(job, `mails.so submit error: ${msg}`)
-        // Transient — reset items to pending and retry next tick
         await sql`UPDATE verification_job_items SET status = 'pending' WHERE job_id = ${job.id} AND status = 'processing'`
         await sql`UPDATE verification_jobs SET next_run_at = NOW() + INTERVAL '60 seconds' WHERE id = ${job.id}`
         return { retrying: true, error: msg }
       }
 
-      // Store batchId — next cron tick will poll for results
       await sql`
         UPDATE verification_jobs SET
           mailsso_batch_id = ${batchId},
@@ -234,7 +253,7 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
 
 // Fail a job and refund ALL reserved credits that haven't been charged yet
 async function failJob(job: { id: string; user_id: string; credits_reserved: number }, reason: string) {
-  // Count what was already charged (completed items)
+  console.error(`[cron/verify] failJob: id=${job.id} reason="${reason}"`)
   const charged = await sql`
     SELECT COALESCE(SUM(credits_charged), 0) AS total
     FROM verification_job_items
@@ -251,6 +270,7 @@ async function failJob(job: { id: string; user_id: string; credits_reserved: num
   `
 
   if (refund > 0) {
+    console.log(`[cron/verify] Refunding ${refund} credits to user=${job.user_id}`)
     await sql`
       UPDATE user_credits SET balance = balance + ${refund}, updated_at = NOW()
       WHERE user_id = ${job.user_id}
@@ -274,9 +294,11 @@ async function finalizeOrContinue(job: { id: string; user_id: string; credits_re
 }
 
 async function finalizeJob(job: { id: string; user_id: string; credits_reserved: number; total_emails?: number }) {
-  // Safety: if there are no completed items at all but the job had emails, something is wrong — don't finalize
+  console.log(`[cron/verify] finalizeJob: id=${job.id}`)
   const completedCount = await sql`SELECT COUNT(*) AS c FROM verification_job_items WHERE job_id = ${job.id}`
+  console.log(`[cron/verify] finalizeJob: completed_items=${completedCount[0].c} total_emails=${job.total_emails}`)
   if (Number(completedCount[0].c) === 0 && Number(job.total_emails ?? 0) > 0) {
+    console.warn(`[cron/verify] finalizeJob skipped — no completed items yet for job=${job.id}`)
     await sql`UPDATE verification_jobs SET next_run_at = NOW() + INTERVAL '1 minute' WHERE id = ${job.id}`
     return { skipped: true, reason: 'No completed items yet — waiting for seed or processing' }
   }
