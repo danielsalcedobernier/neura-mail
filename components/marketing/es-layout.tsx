@@ -5,7 +5,7 @@ export default function EsLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-black text-white flex flex-col">
       <Navbar lang="es" />
-      <div className="flex-1">{children}</div>
+      {children}
       <Footer lang="es" />
     </div>
   )

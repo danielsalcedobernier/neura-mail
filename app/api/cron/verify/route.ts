@@ -262,10 +262,18 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
     // Submit non-cached emails to mails.so batch API
     if (needsApi.length > 0) {
       // Mark as processing
-      await sql`
-        UPDATE verification_job_items SET status = 'processing'
-        WHERE id = ANY(${needsApi.map(i => i.id)}::uuid[])
-      `
+      try {
+        await sql`
+          UPDATE verification_job_items SET status = 'processing'
+          WHERE id = ANY(${needsApi.map((i: { id: string }) => i.id)}::uuid[])
+        `
+        console.log(`[cron/verify] Marked ${needsApi.length} items as processing — job=${job.id}`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error(`[cron/verify] Failed to mark items as processing job=${job.id}:`, msg)
+        await sql`UPDATE verification_jobs SET next_run_at = NOW() + INTERVAL '60 seconds' WHERE id = ${job.id}`
+        return { retrying: true, error: `mark processing failed: ${msg}` }
+      }
 
       console.log(`[cron/verify] Submitting ${needsApi.length} emails to mails.so — job=${job.id}`)
       let batchId: string

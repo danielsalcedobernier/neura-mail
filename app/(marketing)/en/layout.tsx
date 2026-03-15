@@ -11,7 +11,7 @@ export default function EnLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-black text-white flex flex-col">
       <Navbar lang="en" />
-      <div className="flex-1">{children}</div>
+      {children}
       <Footer lang="en" />
     </div>
   )
