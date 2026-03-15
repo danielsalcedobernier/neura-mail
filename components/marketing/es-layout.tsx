@@ -1,5 +1,3 @@
-'use client'
-
 import Navbar from '@/components/marketing/navbar'
 import Footer from '@/components/marketing/footer'
 

@@ -181,7 +181,12 @@ export async function GET(request: NextRequest) {
   })
 
   if (!result.ran) return ok({ skipped: true, reason: 'Already running' })
-  if (result.error) return error(result.error, 500)
+  if (result.error) {
+    // Configuration errors (e.g. mails.so not set up) should not crash with 500
+    const isConfigError = result.error.includes('not configured') || result.error.includes('API key')
+    if (isConfigError) return ok({ skipped: true, reason: result.error })
+    return error(result.error, 500)
+  }
   return ok(result.result)
 }
 
