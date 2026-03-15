@@ -47,9 +47,13 @@ export default function MarketingFooter({ lang }: { lang: Lang }) {
         </div>
 
         <div className="mt-12 pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-xs text-white/30">
-            &copy; {new Date().getFullYear()} NeuraMail. {tr.rights}
-          </p>
+          <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-4">
+            <p className="text-xs text-white/30">
+              &copy; {new Date().getFullYear()} NeuraMail. {tr.rights}
+            </p>
+            <span className="hidden sm:inline text-white/20 text-xs">·</span>
+            <p className="text-xs text-white/20">Un proyecto de <span className="text-white/30">UnitedBrains LLC</span></p>
+          </div>
           <p className="text-xs text-white/20">{tr.trusted}</p>
         </div>
       </div>
