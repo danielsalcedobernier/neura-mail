@@ -54,7 +54,7 @@ export default function MarketingFooter({ lang }: { lang: Lang }) {
             <span className="hidden sm:inline text-white/20 text-xs">·</span>
             <p className="text-xs text-white/20">Un proyecto de <span className="text-white/30">UnitedBrains LLC</span></p>
           </div>
-          <p className="text-xs text-white/20">{tr.trusted}</p>
+
         </div>
       </div>
     </footer>

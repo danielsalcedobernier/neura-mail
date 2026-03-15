@@ -214,7 +214,7 @@ export async function storeBatchInCache(
       v.email, v.verification_status, (v.verification_score)::numeric,
       (v.mx_found)::boolean, (v.smtp_valid)::boolean,
       (v.is_disposable)::boolean, (v.is_role_based)::boolean, (v.is_catch_all)::boolean,
-      v.provider, v.raw_response, v.verified_by_user_id::uuid, (v.expires_at)::timestamptz
+      v.provider, v.raw_response::jsonb, v.verified_by_user_id::uuid, (v.expires_at)::timestamptz
     FROM json_to_recordset(${payload}::json) AS v(
       email text, verification_status text, verification_score numeric,
       mx_found boolean, smtp_valid boolean, is_disposable boolean,
