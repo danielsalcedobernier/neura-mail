@@ -14,20 +14,20 @@ export async function GET(request: NextRequest) {
   try {
     // Expire active plans that have passed their expiry date
     const expired = await sql`
-      UPDATE user_plans SET status = 'expired', updated_at = NOW()
+      UPDATE user_plans SET status = 'expired'
       WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at < NOW()
       RETURNING id, user_id, plan_id
     `
     console.log(`[cron/expire_user_plans] Expired ${expired.length} plans`)
 
-    // Downgrade users whose plan expired to the free tier
+    // Update users.updated_at to signal their plan changed (users has no 'plan' column — plan is read from user_plans)
     if (expired.length > 0) {
       const userIds = expired.map((r: { user_id: string }) => r.user_id)
       await sql`
-        UPDATE users SET plan = 'free', updated_at = NOW()
+        UPDATE users SET updated_at = NOW()
         WHERE id = ANY(${userIds}::uuid[])
       `
-      console.log(`[cron/expire_user_plans] Downgraded ${userIds.length} users to free tier`)
+      console.log(`[cron/expire_user_plans] Marked ${userIds.length} users as updated after plan expiry`)
     }
 
     await sql`
