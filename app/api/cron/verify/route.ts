@@ -28,6 +28,16 @@ export async function GET(request: NextRequest) {
       ORDER BY vj.created_at ASC
       LIMIT 1
     `
+    // Detect and fail jobs stuck in 'running' for more than 30 minutes
+    const stuckJobs = await sql`
+      SELECT id, user_id, credits_reserved FROM verification_jobs
+      WHERE status = 'running'
+        AND next_run_at < NOW() - INTERVAL '30 minutes'
+    `
+    for (const stuck of stuckJobs) {
+      await failJob(stuck, 'Job stuck: no progress for 30 minutes')
+    }
+
     if (!jobs[0]) return { processed: 0, message: 'No jobs queued' }
     const job = jobs[0]
 
@@ -38,7 +48,23 @@ export async function GET(request: NextRequest) {
 
     // ── PHASE B: Poll existing batch job ────────────────────────────────────
     if (job.mailsso_batch_id) {
-      const results = await pollBatch(job.mailsso_batch_id)
+      // If batch has been waiting too long (>2h), fail and refund
+      const submittedAt = job.mailsso_batch_submitted_at ? new Date(job.mailsso_batch_submitted_at as string).getTime() : 0
+      if (submittedAt && Date.now() - submittedAt > 2 * 60 * 60 * 1000) {
+        return await failJob(job, 'Batch timeout: mails.so did not respond within 2 hours')
+      }
+
+      let results
+      try {
+        results = await pollBatch(job.mailsso_batch_id)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        // Transient errors: retry next tick. Permanent errors: fail and refund.
+        const isPermanent = msg.includes('401') || msg.includes('403') || msg.includes('not found') || msg.includes('404')
+        if (isPermanent) return await failJob(job, `mails.so poll error: ${msg}`)
+        await sql`UPDATE verification_jobs SET next_run_at = NOW() + INTERVAL '60 seconds' WHERE id = ${job.id}`
+        return { retrying: true, error: msg }
+      }
 
       // Still processing on mails.so side — come back next cron tick
       if (results === null) {
@@ -158,7 +184,18 @@ export async function GET(request: NextRequest) {
         WHERE id = ANY(${needsApi.map(i => i.id)}::uuid[])
       `
 
-      const batchId = await submitBatch(needsApi.map(i => i.email))
+      let batchId: string
+      try {
+        batchId = await submitBatch(needsApi.map(i => i.email))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        const isPermanent = msg.includes('401') || msg.includes('403') || msg.includes('not configured')
+        if (isPermanent) return await failJob(job, `mails.so submit error: ${msg}`)
+        // Transient — reset items to pending and retry next tick
+        await sql`UPDATE verification_job_items SET status = 'pending' WHERE job_id = ${job.id} AND status = 'processing'`
+        await sql`UPDATE verification_jobs SET next_run_at = NOW() + INTERVAL '60 seconds' WHERE id = ${job.id}`
+        return { retrying: true, error: msg }
+      }
 
       // Store batchId — next cron tick will poll for results
       await sql`
@@ -188,6 +225,34 @@ export async function GET(request: NextRequest) {
     return error(result.error, 500)
   }
   return ok(result.result)
+}
+
+// Fail a job and refund ALL reserved credits that haven't been charged yet
+async function failJob(job: { id: string; user_id: string; credits_reserved: number }, reason: string) {
+  // Count what was already charged (completed items)
+  const charged = await sql`
+    SELECT COALESCE(SUM(credits_charged), 0) AS total
+    FROM verification_job_items
+    WHERE job_id = ${job.id} AND status = 'completed'
+  `
+  const refund = Number(job.credits_reserved) - Number(charged[0].total)
+
+  await sql`
+    UPDATE verification_jobs SET
+      status = 'failed',
+      completed_at = NOW(),
+      error_message = ${reason}
+    WHERE id = ${job.id}
+  `
+
+  if (refund > 0) {
+    await sql`
+      UPDATE user_credits SET balance = balance + ${refund}, updated_at = NOW()
+      WHERE user_id = ${job.user_id}
+    `
+  }
+
+  return { jobFailed: job.id, reason, refund }
 }
 
 // Check if job has more pending items or is complete
