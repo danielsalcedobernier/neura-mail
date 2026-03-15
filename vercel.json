@@ -5,6 +5,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/sync_verification_progress",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/send",
       "schedule": "* * * * *"
     },

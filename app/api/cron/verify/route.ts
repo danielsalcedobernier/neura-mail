@@ -229,31 +229,11 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
         }
       }
 
-      // Update job counters — fetch first, then update with literal values to avoid Neon $1 param issues
-      const jobCounters = await sql`
-        SELECT
-          COUNT(*) FILTER (WHERE result IS NOT NULL)   AS processed_emails,
-          COUNT(*) FILTER (WHERE result = 'valid')     AS valid_count,
-          COUNT(*) FILTER (WHERE result = 'invalid')   AS invalid_count,
-          COUNT(*) FILTER (WHERE result = 'risky')     AS risky_count,
-          COUNT(*) FILTER (WHERE result = 'catch_all') AS catch_all_count,
-          COUNT(*) FILTER (WHERE result = 'unknown')   AS unknown_count,
-          COUNT(*) FILTER (WHERE from_cache = true)    AS cache_hit_count
-        FROM verification_job_items
-        WHERE job_id = ${job.id}
-      `
-      const c = jobCounters[0]
+      // Clear batch — counters updated by sync_verification_progress cron
       await sql`
         UPDATE verification_jobs SET
           mailsso_batch_id           = NULL,
-          mailsso_batch_submitted_at = NULL,
-          processed_emails  = ${Number(c.processed_emails)},
-          valid_count       = ${Number(c.valid_count)},
-          invalid_count     = ${Number(c.invalid_count)},
-          risky_count       = ${Number(c.risky_count)},
-          catch_all_count   = ${Number(c.catch_all_count)},
-          unknown_count     = ${Number(c.unknown_count)},
-          cache_hit_count   = ${Number(c.cache_hit_count)}
+          mailsso_batch_submitted_at = NULL
         WHERE id = ${job.id}
       `
       return await finalizeOrContinue(job)
@@ -390,34 +370,9 @@ async function failJob(job: { id: string; user_id: string; credits_reserved: num
   return { jobFailed: job.id, reason, refund }
 }
 
-// Check if job has more pending items or is complete — always syncs counters
+// Check if job has more pending items or is complete
+// Counters are kept in sync by the separate sync_verification_progress cron
 async function finalizeOrContinue(job: { id: string; user_id: string; credits_reserved: number }) {
-  // Fetch counters first, then update with literal values to avoid Neon repeated $1 param error
-  const jobCounters = await sql`
-    SELECT
-      COUNT(*) FILTER (WHERE result IS NOT NULL)   AS processed_emails,
-      COUNT(*) FILTER (WHERE result = 'valid')     AS valid_count,
-      COUNT(*) FILTER (WHERE result = 'invalid')   AS invalid_count,
-      COUNT(*) FILTER (WHERE result = 'risky')     AS risky_count,
-      COUNT(*) FILTER (WHERE result = 'catch_all') AS catch_all_count,
-      COUNT(*) FILTER (WHERE result = 'unknown')   AS unknown_count,
-      COUNT(*) FILTER (WHERE from_cache = true)    AS cache_hit_count
-    FROM verification_job_items
-    WHERE job_id = ${job.id}
-  `
-  const c = jobCounters[0]
-  await sql`
-    UPDATE verification_jobs SET
-      processed_emails = ${Number(c.processed_emails)},
-      valid_count      = ${Number(c.valid_count)},
-      invalid_count    = ${Number(c.invalid_count)},
-      risky_count      = ${Number(c.risky_count)},
-      catch_all_count  = ${Number(c.catch_all_count)},
-      unknown_count    = ${Number(c.unknown_count)},
-      cache_hit_count  = ${Number(c.cache_hit_count)}
-    WHERE id = ${job.id}
-  `
-
   const remaining = await sql`
     SELECT COUNT(*) as count FROM verification_job_items
     WHERE job_id = ${job.id} AND status = 'pending'
