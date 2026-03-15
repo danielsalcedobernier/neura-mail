@@ -43,7 +43,19 @@ export async function POST(request: NextRequest) {
     `
     if (!lists[0]) return error('List not found or not ready', 404)
 
-    const emailsToVerify = lists[0].unverified_count || 0
+    // Always count directly from the contacts table — the cached counter can be stale
+    const countResult = await sql`
+      SELECT COUNT(*) AS total FROM email_list_contacts
+      WHERE list_id = ${list_id}
+        AND user_id = ${session.id}
+        AND (verification_status IS NULL OR verification_status = 'unverified')
+    `
+    const emailsToVerify = Number(countResult[0].total) || 0
+
+    // Sync the cached counter while we're here
+    if (emailsToVerify !== Number(lists[0].unverified_count)) {
+      await sql`UPDATE email_lists SET unverified_count = ${emailsToVerify} WHERE id = ${list_id}`
+    }
 
     // Check credits
     const credits = await getUserCredits(session.id)
