@@ -20,10 +20,10 @@ export async function GET(request: NextRequest) {
   const result = await withCronLock('process_verification_queue', async () => {
     // Pick one running or queued job
     const jobs = await sql`
-      SELECT vj.id, vj.user_id, vj.credits_reserved, vj.credits_used,
+      SELECT vj.id, vj.user_id, vj.credits_reserved, vj.credits_used, vj.total_emails,
              vj.mailsso_batch_id, vj.mailsso_batch_submitted_at
       FROM verification_jobs vj
-      WHERE vj.status IN ('queued', 'running')
+      WHERE vj.status IN ('queued', 'running')  -- never touch 'seeding' jobs
         AND vj.next_run_at <= NOW()
       ORDER BY vj.created_at ASC
       LIMIT 1
@@ -198,7 +198,14 @@ async function finalizeOrContinue(job: { id: string; user_id: string; credits_re
   return await finalizeJob(job)
 }
 
-async function finalizeJob(job: { id: string; user_id: string; credits_reserved: number }) {
+async function finalizeJob(job: { id: string; user_id: string; credits_reserved: number; total_emails?: number }) {
+  // Safety: if there are no completed items at all but the job had emails, something is wrong — don't finalize
+  const completedCount = await sql`SELECT COUNT(*) AS c FROM verification_job_items WHERE job_id = ${job.id}`
+  if (Number(completedCount[0].c) === 0 && Number(job.total_emails ?? 0) > 0) {
+    await sql`UPDATE verification_jobs SET next_run_at = NOW() + INTERVAL '1 minute' WHERE id = ${job.id}`
+    return { skipped: true, reason: 'No completed items yet — waiting for seed or processing' }
+  }
+
   const stats = await sql`
     SELECT
       COUNT(*) FILTER (WHERE result = 'valid')     AS valid,
