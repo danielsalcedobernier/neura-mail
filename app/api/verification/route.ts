@@ -15,16 +15,7 @@ export async function GET() {
   if (!session) return unauthorized()
 
   const jobs = await sql`
-    SELECT
-      vj.*,
-      el.name AS list_name,
-      -- Live counters from job items for active jobs
-      COALESCE((SELECT COUNT(*) FROM verification_job_items WHERE job_id = vj.id AND result IS NOT NULL), 0) AS processed_emails,
-      COALESCE((SELECT COUNT(*) FROM verification_job_items WHERE job_id = vj.id AND result = 'valid'),     0) AS valid_count,
-      COALESCE((SELECT COUNT(*) FROM verification_job_items WHERE job_id = vj.id AND result = 'invalid'),   0) AS invalid_count,
-      COALESCE((SELECT COUNT(*) FROM verification_job_items WHERE job_id = vj.id AND result = 'risky'),     0) AS risky_count,
-      COALESCE((SELECT COUNT(*) FROM verification_job_items WHERE job_id = vj.id AND result = 'catch_all'), 0) AS catch_all_count,
-      COALESCE((SELECT COUNT(*) FROM verification_job_items WHERE job_id = vj.id AND result = 'unknown'),   0) AS unknown_count
+    SELECT vj.*, el.name AS list_name
     FROM verification_jobs vj
     LEFT JOIN email_lists el ON el.id = vj.list_id
     WHERE vj.user_id = ${session.id}
