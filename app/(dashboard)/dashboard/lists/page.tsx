@@ -13,8 +13,18 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+
+// ─── Column mapping types ────────────────────────────────────────────────────
+interface ColumnMapping { email: number; first_name: number; last_name: number }
+interface PreviewData {
+  headers: string[]
+  sample: string[][]
+  suggested: { email: number; first_name: number; last_name: number }
+  totalLines: number
+}
 
 // ─── Live console log panel ───────────────────────────────────────────────────
 type LogLevel = 'info' | 'success' | 'warn' | 'error'
@@ -84,9 +94,23 @@ async function sendBatch(listId: string, rows: unknown[]) {
   if (!res.ok) throw new Error('Error al guardar batch')
 }
 
+// Phase 1: load file, detect columns, return preview for user to confirm mapping
+function previewFile(file: File): Promise<PreviewData> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker('/workers/csv-parser.worker.js')
+    worker.onmessage = (e) => {
+      if (e.data.type === 'preview') { worker.terminate(); resolve(e.data) }
+      if (e.data.type === 'error')   { worker.terminate(); reject(new Error(e.data.message)) }
+    }
+    worker.onerror = (e) => { worker.terminate(); reject(new Error(e.message)) }
+    worker.postMessage({ type: 'preview', file })
+  })
+}
+
 async function importFileToList(
   file: File,
   listId: string,
+  mapping: ColumnMapping,
   onStep: (step: string) => void,
   onProgress: (pct: number, count: number) => void,
   log: Logger,
@@ -157,7 +181,7 @@ async function importFileToList(
       }
     }
     worker.onerror = (e) => { log(`Error del worker: ${e.message}`, 'error'); worker.terminate(); reject(new Error(e.message)) }
-    worker.postMessage({ type: 'parse', file })
+    worker.postMessage({ type: 'parse', file, mapping })
   })
 }
 
@@ -206,6 +230,11 @@ export default function ListsPage() {
   const [file, setFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Column mapping preview
+  const [preview, setPreview] = useState<PreviewData | null>(null)
+  const [previewing, setPreviewing] = useState(false)
+  const [mapping, setMapping] = useState<ColumnMapping>({ email: -1, first_name: -1, last_name: -1 })
+
   // Console log
   const { logs, log, clear } = useImportLog()
 
@@ -230,10 +259,29 @@ export default function ListsPage() {
   }
 
   // ── Open import dialog ────────────────────────────────────────────────────
+  const selectFile = async (f: File) => {
+    setFile(f)
+    setPreview(null)
+    setMapping({ email: -1, first_name: -1, last_name: -1 })
+    setPreviewing(true)
+    try {
+      const p = await previewFile(f)
+      setPreview(p)
+      setMapping({ email: p.suggested.email, first_name: p.suggested.first_name, last_name: p.suggested.last_name })
+    } catch {
+      toast.error('No se pudo leer el archivo')
+      setFile(null)
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
   const openImport = (id: string, name: string) => {
     setImportListId(id)
     setImportListName(name)
     setFile(null)
+    setPreview(null)
+    setMapping({ email: -1, first_name: -1, last_name: -1 })
     setPasteText('')
     setPastePreview(null)
     setImportStep('idle')
@@ -253,6 +301,7 @@ export default function ListsPage() {
       const result = await importFileToList(
         f,
         importListId,
+        mapping,
         setImportStep,
         (pct, count) => { setImportPct(pct); setImportCount(count) },
         log,
@@ -455,7 +504,7 @@ export default function ListsPage() {
                   e.preventDefault()
                   setDragOver(false)
                   const f = e.dataTransfer.files[0]
-                  if (f) setFile(f)
+                  if (f) selectFile(f)
                 }}
                 onClick={() => fileInputRef.current?.click()}
               >
@@ -464,7 +513,7 @@ export default function ListsPage() {
                   type="file"
                   accept=".csv,.txt,.xlsx,.xls"
                   className="hidden"
-                  onChange={e => { const f = e.target.files?.[0]; if (f) setFile(f) }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) selectFile(f) }}
                 />
                 {file ? (
                   <div className="flex items-center justify-center gap-3">
@@ -490,9 +539,66 @@ export default function ListsPage() {
                 )}
               </div>
 
-              <p className="text-xs text-muted-foreground">
-                Columnas detectadas automáticamente: <span className="font-mono">email</span>, <span className="font-mono">first_name</span>, <span className="font-mono">last_name</span>
-              </p>
+              {/* Column mapping */}
+              {previewing && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Leyendo columnas del archivo...
+                </div>
+              )}
+              {preview && !importing && (
+                <div className="flex flex-col gap-3 rounded-md border border-border p-3 bg-muted/30">
+                  <p className="text-xs font-medium text-foreground">
+                    Mapeo de columnas <span className="text-muted-foreground font-normal">— {preview.totalLines.toLocaleString('es-CL')} filas detectadas</span>
+                  </p>
+                  {/* Preview sample */}
+                  {preview.sample.length > 0 && (
+                    <div className="overflow-x-auto rounded border border-border">
+                      <table className="text-xs w-full">
+                        <thead>
+                          <tr className="bg-muted">
+                            {preview.headers.map((h, i) => (
+                              <th key={i} className="px-2 py-1 text-left font-medium text-muted-foreground whitespace-nowrap">{h || `Col ${i+1}`}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {preview.sample.map((row, ri) => (
+                            <tr key={ri} className="border-t border-border">
+                              {preview.headers.map((_, ci) => (
+                                <td key={ci} className="px-2 py-1 text-muted-foreground truncate max-w-[120px]">{row[ci] ?? ''}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {/* Selectors */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['email', 'first_name', 'last_name'] as const).map(field => (
+                      <div key={field} className="flex flex-col gap-1">
+                        <label className="text-xs text-muted-foreground">
+                          {field === 'email' ? 'Email *' : field === 'first_name' ? 'Nombre' : 'Apellido'}
+                        </label>
+                        <Select
+                          value={String(mapping[field])}
+                          onValueChange={v => setMapping(prev => ({ ...prev, [field]: Number(v) }))}
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue placeholder="— ignorar —" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="-1">— ignorar —</SelectItem>
+                            {preview.headers.map((h, i) => (
+                              <SelectItem key={i} value={String(i)}>{h || `Columna ${i+1}`}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Progress */}
               {importing && (
@@ -521,7 +627,7 @@ export default function ListsPage() {
 
               <Button
                 onClick={() => file && handleFileImport(file)}
-                disabled={!file || importing}
+                disabled={!file || importing || previewing || (!!preview && mapping.email === -1)}
                 className="w-full"
               >
                 {importing
