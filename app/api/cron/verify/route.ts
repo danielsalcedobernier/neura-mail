@@ -425,14 +425,29 @@ async function finalizeJob(job: { id: string; user_id: string; credits_reserved:
     `
   }
 
-  // Update list counts
-  await sql`
-    UPDATE email_lists SET
-      valid_count     = (SELECT COUNT(*) FROM email_list_contacts WHERE list_id = email_lists.id AND verification_status = 'valid'),
-      invalid_count   = (SELECT COUNT(*) FROM email_list_contacts WHERE list_id = email_lists.id AND verification_status = 'invalid'),
-      unverified_count = (SELECT COUNT(*) FROM email_list_contacts WHERE list_id = email_lists.id AND verification_status IS NULL)
-    WHERE id = (SELECT list_id FROM verification_jobs WHERE id = ${job.id})
-  `
+  // Update list counts — group mails.so statuses correctly
+  const listRow = await sql`SELECT list_id FROM verification_jobs WHERE id = ${job.id}`
+  const listId = listRow[0]?.list_id
+  if (listId) {
+    const counts = await sql`
+      SELECT
+        COUNT(*) FILTER (WHERE verification_status IN ('valid', 'catch_all'))             AS valid_count,
+        COUNT(*) FILTER (WHERE verification_status IN ('invalid', 'risky', 'unknown'))    AS invalid_count,
+        COUNT(*) FILTER (WHERE verification_status IS NULL OR verification_status = 'unverified') AS unverified_count
+      FROM email_list_contacts
+      WHERE list_id = ${listId}
+    `
+    const { valid_count, invalid_count, unverified_count } = counts[0]
+    await sql`
+      UPDATE email_lists SET
+        valid_count      = ${Number(valid_count)},
+        invalid_count    = ${Number(invalid_count)},
+        unverified_count = ${Number(unverified_count)},
+        updated_at       = NOW()
+      WHERE id = ${listId}
+    `
+    console.log(`[cron/verify] Updated list=${listId} valid=${valid_count} invalid=${invalid_count} unverified=${unverified_count}`)
+  }
 
   return { jobCompleted: job.id, ...s }
 }
