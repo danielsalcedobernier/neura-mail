@@ -233,9 +233,17 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
         }
       }
 
-      // Clear the batch id and check if more pending items exist
+      // Update job counters from verification_job_items — cheap single-row update
       await sql`
-        UPDATE verification_jobs SET mailsso_batch_id = NULL, mailsso_batch_submitted_at = NULL
+        UPDATE verification_jobs SET
+          mailsso_batch_id          = NULL,
+          mailsso_batch_submitted_at = NULL,
+          processed_emails = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result IS NOT NULL),
+          valid_count      = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'valid'),
+          invalid_count    = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'invalid'),
+          risky_count      = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'risky'),
+          catch_all_count  = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'catch_all'),
+          unknown_count    = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'unknown')
         WHERE id = ${job.id}
       `
       return await finalizeOrContinue(job)

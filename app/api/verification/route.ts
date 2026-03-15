@@ -15,7 +15,7 @@ export async function GET() {
   if (!session) return unauthorized()
 
   const jobs = await sql`
-    SELECT vj.*, el.name as list_name
+    SELECT vj.*, el.name AS list_name
     FROM verification_jobs vj
     LEFT JOIN email_lists el ON el.id = vj.list_id
     WHERE vj.user_id = ${session.id}
