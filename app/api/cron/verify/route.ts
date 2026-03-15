@@ -1,4 +1,4 @@
-export const maxDuration = 300
+export const maxDuration = 55
 
 import { NextRequest } from 'next/server'
 import sql from '@/lib/db'

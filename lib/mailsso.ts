@@ -108,12 +108,29 @@ export async function submitBatch(emails: string[]): Promise<string> {
 }
 
 // Poll for batch results — returns null if still processing
+// Never blocks more than 15s so the cron stays within Vercel's 60s timeout
 export async function pollBatch(batchId: string): Promise<VerificationResult[] | null> {
   const config = await getConfig()
 
-  const res = await fetch(`${config.baseUrl}/batch/${batchId}`, {
-    headers: { 'x-mails-api-key': config.apiKey },
-  })
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+
+  let res: Response
+  try {
+    res = await fetch(`${config.baseUrl}/batch/${batchId}`, {
+      headers: { 'x-mails-api-key': config.apiKey },
+      signal: controller.signal,
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('abort') || msg.includes('timeout')) {
+      console.warn(`[mailsso] pollBatch timed out after 15s — batchId=${batchId}`)
+      return null // treat as still processing
+    }
+    throw err
+  } finally {
+    clearTimeout(timeout)
+  }
 
   if (!res.ok) throw new Error(`mails.so poll error: ${res.status}`)
 
@@ -122,9 +139,13 @@ export async function pollBatch(batchId: string): Promise<VerificationResult[] |
   const data = body.data ?? body
 
   // Still processing — finished_at is null or emails not yet populated
-  if (!data.finished_at) return null
+  if (!data.finished_at) {
+    console.log(`[mailsso] pollBatch not ready yet — batchId=${batchId}`)
+    return null
+  }
   if (!Array.isArray(data.emails) || data.emails.length === 0) return null
 
+  console.log(`[mailsso] pollBatch ready — batchId=${batchId} results=${data.emails.length}`)
   return (data.emails as Record<string, unknown>[]).map(r =>
     mapResult(r.email as string, r)
   )
