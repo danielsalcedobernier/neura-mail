@@ -18,6 +18,56 @@ export async function GET(request: NextRequest) {
   if (!validateCronRequest(request)) return error('Unauthorized', 401)
 
   const result = await withCronLock('process_verification_queue', async () => {
+    // ── SEED PHASE: advance seeding jobs (50k rows per tick) ───────────────
+    const seedingJobs = await sql`
+      SELECT id, user_id, list_id, total_emails
+      FROM verification_jobs
+      WHERE status = 'seeding'
+      ORDER BY created_at ASC
+    `
+    for (const sj of seedingJobs) {
+      const SEED_CHUNK = 50000
+      // Find the current seed offset (how many items already inserted)
+      const countRes = await sql`SELECT COUNT(*) AS c FROM verification_job_items WHERE job_id = ${sj.id}`
+      const offset = Number(countRes[0].c)
+      console.log(`[cron/verify] Seeding job=${sj.id} offset=${offset}`)
+
+      const ids = await sql`
+        SELECT id, email FROM email_list_contacts
+        WHERE list_id = ${sj.list_id}
+          AND (verification_status IS NULL OR verification_status = 'unverified')
+          AND user_id = ${sj.user_id}
+        ORDER BY id
+        LIMIT ${SEED_CHUNK} OFFSET ${offset}
+      `
+
+      if (ids.length === 0) {
+        // Seed complete
+        const finalCount = await sql`SELECT COUNT(*) AS c FROM verification_job_items WHERE job_id = ${sj.id}`
+        const seeded = Number(finalCount[0].c)
+        console.log(`[cron/verify] Seed complete job=${sj.id} total=${seeded}`)
+        if (seeded === 0) {
+          await failJob({ id: sj.id, user_id: sj.user_id, credits_reserved: sj.total_emails }, 'No emails found to verify')
+        } else {
+          await sql`
+            UPDATE verification_jobs
+            SET status = 'queued', total_emails = ${seeded}, next_run_at = NOW()
+            WHERE id = ${sj.id}
+          `
+        }
+      } else {
+        await sql`
+          INSERT INTO verification_job_items (job_id, contact_id, email)
+          SELECT ${sj.id}, id, email
+          FROM email_list_contacts
+          WHERE id = ANY(${ids.map((r: { id: string }) => r.id)}::uuid[])
+            AND (verification_status IS NULL OR verification_status = 'unverified')
+          ON CONFLICT DO NOTHING
+        `
+        console.log(`[cron/verify] Seeded chunk job=${sj.id} inserted=${ids.length} total=${offset + ids.length}`)
+      }
+    }
+
     // Detect and fail jobs stuck in 'running' for more than 30 minutes
     const stuckJobs = await sql`
       SELECT id, user_id, credits_reserved FROM verification_jobs
