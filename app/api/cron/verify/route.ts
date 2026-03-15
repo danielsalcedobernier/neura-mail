@@ -6,7 +6,7 @@ import { withCronLock } from '@/lib/cron'
 import { checkCacheBulk, storeBatchInCache, submitBatch, pollBatch } from '@/lib/mailsso'
 import { ok, error } from '@/lib/api'
 
-const BATCH_SIZE = 50000 // mails.so supports up to 50k per batch
+const BATCH_SIZE = 1000 // small batches = fast turnaround, no polling timeouts
 
 function validateCronRequest(request: NextRequest): boolean {
   const secret = process.env.CRON_SECRET
