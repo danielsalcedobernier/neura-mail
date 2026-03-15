@@ -450,13 +450,18 @@ async function finalizeJob(job: { id: string; user_id: string; credits_reserved:
   `
   const s = stats[0]
 
+  // Use Number() to pass literals — avoids Neon "$1" error with many params in one statement
   await sql`
     UPDATE verification_jobs SET
-      status = 'completed', completed_at = NOW(),
-      valid_count = ${s.valid}, invalid_count = ${s.invalid},
-      risky_count = ${s.risky}, unknown_count = ${s.unknown},
-      catch_all_count = ${s.catch_all}, cache_hit_count = ${s.cache_hits},
-      credits_used = ${s.credits_used}
+      status = 'completed',
+      completed_at = NOW(),
+      valid_count     = ${Number(s.valid)},
+      invalid_count   = ${Number(s.invalid)},
+      risky_count     = ${Number(s.risky)},
+      unknown_count   = ${Number(s.unknown)},
+      catch_all_count = ${Number(s.catch_all)},
+      cache_hit_count = ${Number(s.cache_hits)},
+      credits_used    = ${Number(s.credits_used)}
     WHERE id = ${job.id}
   `
 
