@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
       ORDER BY created_at ASC
     `
     for (const sj of seedingJobs) {
-      const SEED_CHUNK = 50000
+      const SEED_CHUNK = 500000
       // Find the current seed offset (how many items already inserted)
       const countRes = await sql`SELECT COUNT(*) AS c FROM verification_job_items WHERE job_id = ${sj.id}`
       const offset = Number(countRes[0].c)
