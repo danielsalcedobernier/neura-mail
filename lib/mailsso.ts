@@ -189,7 +189,8 @@ export async function storeBatchInCache(
   verifiedByUserId?: string
 ): Promise<void> {
   if (results.length === 0) return
-  const values = results.map(r => ({
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+  const payload = JSON.stringify(results.map(r => ({
     email: r.email.toLowerCase(),
     verification_status: r.status,
     verification_score: r.score,
@@ -201,14 +202,25 @@ export async function storeBatchInCache(
     provider: r.provider,
     raw_response: JSON.stringify(r.raw),
     verified_by_user_id: verifiedByUserId || null,
-    expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-  }))
+    expires_at: expiresAt,
+  })))
   await sql`
-    INSERT INTO global_email_cache ${sql(values,
-      'email', 'verification_status', 'verification_score',
-      'mx_found', 'smtp_valid', 'is_disposable', 'is_role_based', 'is_catch_all',
-      'provider', 'raw_response', 'verified_by_user_id', 'expires_at'
-    )}
+    INSERT INTO global_email_cache (
+      email, verification_status, verification_score,
+      mx_found, smtp_valid, is_disposable, is_role_based, is_catch_all,
+      provider, raw_response, verified_by_user_id, expires_at
+    )
+    SELECT
+      v.email, v.verification_status, (v.verification_score)::numeric,
+      (v.mx_found)::boolean, (v.smtp_valid)::boolean,
+      (v.is_disposable)::boolean, (v.is_role_based)::boolean, (v.is_catch_all)::boolean,
+      v.provider, v.raw_response, v.verified_by_user_id::uuid, (v.expires_at)::timestamptz
+    FROM json_to_recordset(${payload}::json) AS v(
+      email text, verification_status text, verification_score numeric,
+      mx_found boolean, smtp_valid boolean, is_disposable boolean,
+      is_role_based boolean, is_catch_all boolean,
+      provider text, raw_response text, verified_by_user_id text, expires_at text
+    )
     ON CONFLICT (email) DO UPDATE SET
       verification_status  = EXCLUDED.verification_status,
       verification_score   = EXCLUDED.verification_score,
