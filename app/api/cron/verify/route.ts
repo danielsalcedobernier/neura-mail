@@ -56,11 +56,12 @@ export async function GET(request: NextRequest) {
           `
         }
       } else {
+        const idsJson = JSON.stringify(ids.map((r: { id: string }) => r.id))
         await sql`
           INSERT INTO verification_job_items (job_id, contact_id, email)
           SELECT ${sj.id}, id, email
           FROM email_list_contacts
-          WHERE id = ANY(${ids.map((r: { id: string }) => r.id)}::uuid[])
+          WHERE id = ANY(SELECT value::uuid FROM json_array_elements_text(${idsJson}::json))
             AND (verification_status IS NULL OR verification_status = 'unverified')
           ON CONFLICT DO NOTHING
         `
@@ -99,19 +100,20 @@ export async function GET(request: NextRequest) {
     console.log(`[cron/verify] Processing ${jobs.length} job(s): ${jobs.map((j: { id: string }) => j.id).join(', ')}`)
 
     // Mark as running — but only those that are still queued/running (not paused by a race condition)
+    const jobIdsJson = JSON.stringify(jobs.map((j: { id: string }) => j.id))
     await sql`
       UPDATE verification_jobs SET status = 'running', started_at = COALESCE(started_at, NOW())
-      WHERE id = ANY(${jobs.map((j: { id: string }) => j.id)}::uuid[])
+      WHERE id = ANY(SELECT value::uuid FROM json_array_elements_text(${jobIdsJson}::json))
         AND status IN ('queued', 'running')
     `
 
     // Re-fetch to get only the jobs that are still 'running' (not paused mid-flight)
-    const jobIds = jobs.map((j: { id: string }) => j.id)
     const activeJobs = await sql`
       SELECT id, user_id, credits_reserved, credits_used, total_emails,
              mailsso_batch_id, mailsso_batch_submitted_at
       FROM verification_jobs
-      WHERE id = ANY(${jobIds}::uuid[]) AND status = 'running'
+      WHERE id = ANY(SELECT value::uuid FROM json_array_elements_text(${jobIdsJson}::json))
+        AND status = 'running'
     `
 
     if (activeJobs.length === 0) {
@@ -312,9 +314,10 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
     if (needsApi.length > 0) {
       // Mark as processing
       try {
+        const needsApiIdsJson = JSON.stringify(needsApi.map((i: { id: string }) => i.id))
         await sql`
           UPDATE verification_job_items SET status = 'processing'
-          WHERE id = ANY(${needsApi.map((i: { id: string }) => i.id)}::uuid[])
+          WHERE id = ANY(SELECT value::uuid FROM json_array_elements_text(${needsApiIdsJson}::json))
         `
         console.log(`[cron/verify] Marked ${needsApi.length} items as processing — job=${job.id}`)
       } catch (err) {
