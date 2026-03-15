@@ -373,8 +373,21 @@ async function failJob(job: { id: string; user_id: string; credits_reserved: num
   return { jobFailed: job.id, reason, refund }
 }
 
-// Check if job has more pending items or is complete
+// Check if job has more pending items or is complete — always syncs counters
 async function finalizeOrContinue(job: { id: string; user_id: string; credits_reserved: number }) {
+  // Always sync counters so the frontend stays up to date
+  await sql`
+    UPDATE verification_jobs SET
+      processed_emails = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result IS NOT NULL),
+      valid_count      = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'valid'),
+      invalid_count    = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'invalid'),
+      risky_count      = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'risky'),
+      catch_all_count  = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'catch_all'),
+      unknown_count    = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'unknown'),
+      cache_hit_count  = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND from_cache = true)
+    WHERE id = ${job.id}
+  `
+
   const remaining = await sql`
     SELECT COUNT(*) as count FROM verification_job_items
     WHERE job_id = ${job.id} AND status = 'pending'
