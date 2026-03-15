@@ -88,19 +88,26 @@ export async function POST(request: NextRequest) {
     let offset = 0
     let seeded = 0
     while (true) {
-      const chunk = await sql`
-        INSERT INTO verification_job_items (job_id, contact_id, email)
-        SELECT ${jobId}, id, email
-        FROM email_list_contacts
+      // SELECT first to know how many rows this chunk will produce
+      const ids = await sql`
+        SELECT id, email FROM email_list_contacts
         WHERE list_id = ${list_id}
           AND (verification_status IS NULL OR verification_status = 'unverified')
           AND user_id = ${session.id}
         ORDER BY id
         LIMIT ${SEED_CHUNK} OFFSET ${offset}
       `
-      const inserted = (chunk as unknown as { count: number }).count ?? 0
-      seeded += inserted
-      if (inserted < SEED_CHUNK) break
+      if (ids.length === 0) break
+
+      await sql`
+        INSERT INTO verification_job_items (job_id, contact_id, email)
+        SELECT ${jobId}, id, email
+        FROM email_list_contacts
+        WHERE id = ANY(${ids.map((r: { id: string }) => r.id)}::uuid[])
+          AND (verification_status IS NULL OR verification_status = 'unverified')
+      `
+      seeded += ids.length
+      if (ids.length < SEED_CHUNK) break
       offset += SEED_CHUNK
     }
 
