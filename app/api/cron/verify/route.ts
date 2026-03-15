@@ -18,16 +18,6 @@ export async function GET(request: NextRequest) {
   if (!validateCronRequest(request)) return error('Unauthorized', 401)
 
   const result = await withCronLock('process_verification_queue', async () => {
-    // Pick one running or queued job
-    const jobs = await sql`
-      SELECT vj.id, vj.user_id, vj.credits_reserved, vj.credits_used, vj.total_emails,
-             vj.mailsso_batch_id, vj.mailsso_batch_submitted_at
-      FROM verification_jobs vj
-      WHERE vj.status IN ('queued', 'running')  -- never touch 'seeding' jobs
-        AND vj.next_run_at <= NOW()
-      ORDER BY vj.created_at ASC
-      LIMIT 1
-    `
     // Detect and fail jobs stuck in 'running' for more than 30 minutes
     const stuckJobs = await sql`
       SELECT id, user_id, credits_reserved FROM verification_jobs
@@ -38,13 +28,38 @@ export async function GET(request: NextRequest) {
       await failJob(stuck, 'Job stuck: no progress for 30 minutes')
     }
 
-    if (!jobs[0]) return { processed: 0, message: 'No jobs queued' }
-    const job = jobs[0]
+    // Pick ALL queued/running jobs that are due — process in parallel
+    const jobs = await sql`
+      SELECT vj.id, vj.user_id, vj.credits_reserved, vj.credits_used, vj.total_emails,
+             vj.mailsso_batch_id, vj.mailsso_batch_submitted_at
+      FROM verification_jobs vj
+      WHERE vj.status IN ('queued', 'running')  -- never touch 'seeding' jobs
+        AND vj.next_run_at <= NOW()
+      ORDER BY vj.created_at ASC
+    `
 
+    if (jobs.length === 0) return { processed: 0, message: 'No jobs queued' }
+
+    // Mark all as running before starting parallel processing
     await sql`
       UPDATE verification_jobs SET status = 'running', started_at = COALESCE(started_at, NOW())
-      WHERE id = ${job.id}
+      WHERE id = ANY(${jobs.map((j: { id: string }) => j.id)}::uuid[])
     `
+
+    const results = await Promise.all(jobs.map((job: typeof jobs[0]) => processJob(job)))
+    return { processed: jobs.length, results }
+  })
+
+  if (!result.ran) return ok({ skipped: true, reason: 'Already running' })
+  if (result.error) {
+    const isConfigError = result.error.includes('not configured') || result.error.includes('API key')
+    if (isConfigError) return ok({ skipped: true, reason: result.error })
+    return error(result.error, 500)
+  }
+  return ok(result.result)
+}
+
+async function processJob(job: { id: string; user_id: string; credits_reserved: number; credits_used: number; total_emails: number; mailsso_batch_id: string | null; mailsso_batch_submitted_at: string | null }) {
 
     // ── PHASE B: Poll existing batch job ────────────────────────────────────
     if (job.mailsso_batch_id) {
@@ -215,16 +230,6 @@ export async function GET(request: NextRequest) {
 
     // All were cache hits — check if done
     return await finalizeOrContinue(job)
-  })
-
-  if (!result.ran) return ok({ skipped: true, reason: 'Already running' })
-  if (result.error) {
-    // Configuration errors (e.g. mails.so not set up) should not crash with 500
-    const isConfigError = result.error.includes('not configured') || result.error.includes('API key')
-    if (isConfigError) return ok({ skipped: true, reason: result.error })
-    return error(result.error, 500)
-  }
-  return ok(result.result)
 }
 
 // Fail a job and refund ALL reserved credits that haven't been charged yet
