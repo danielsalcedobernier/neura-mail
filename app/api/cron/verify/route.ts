@@ -212,17 +212,12 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
           await storeBatchInCache(results.slice(i, i + WRITE_CHUNK), job.user_id)
         }
 
-        // Update contact statuses using contact_id for precise matching
+        // Update contact statuses — use matched[] directly (only this batch, not all completed)
         if (matched.length > 0) {
-          // Build contact_id → status map from job items
-          const itemsWithContactId = await sql`
-            SELECT contact_id, result FROM verification_job_items
-            WHERE job_id = ${job.id} AND status = 'completed' AND result IS NOT NULL
-          `
-          for (let i = 0; i < itemsWithContactId.length; i += WRITE_CHUNK) {
-            const chunk = itemsWithContactId.slice(i, i + WRITE_CHUNK)
-            const contactIds = chunk.map((r: { contact_id: string }) => r.contact_id)
-            const statuses = chunk.map((r: { result: string }) => r.result)
+          for (let i = 0; i < matched.length; i += WRITE_CHUNK) {
+            const chunk = matched.slice(i, i + WRITE_CHUNK)
+            const contactIds = chunk.map((x: { id: string }) => x.id)
+            const statuses = chunk.map((x: { r: { status: string } }) => x.r!.status)
             await sql`
               UPDATE email_list_contacts SET
                 verification_status = v.status::text,
@@ -234,7 +229,7 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
               WHERE email_list_contacts.id = v.contact_id
             `
           }
-          console.log(`[cron/verify] Updated ${itemsWithContactId.length} contacts by contact_id — job=${job.id}`)
+          console.log(`[cron/verify] Updated ${matched.length} contacts by contact_id — job=${job.id}`)
         }
       }
 
