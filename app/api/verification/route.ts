@@ -85,7 +85,8 @@ export async function POST(request: NextRequest) {
     `
     console.log(`[verification POST] Reserved ${emailsToVerify} credits`)
 
-    // Create job in 'seeding' status — cron will not pick it up until seed completes
+    // Create job in 'seeding' status and return immediately.
+    // The cron /api/cron/verify will seed the items over subsequent ticks — no timeout risk.
     const rows = await sql`
       INSERT INTO verification_jobs (
         user_id, list_id, name, status, total_emails,
@@ -93,53 +94,14 @@ export async function POST(request: NextRequest) {
       ) VALUES (
         ${session.id}, ${list_id},
         ${name || `Verification ${new Date().toLocaleDateString()}`},
-        'seeding', ${emailsToVerify}, ${emailsToVerify}, ${batch_size}, NOW() + INTERVAL '2 minutes'
+        'seeding', ${emailsToVerify}, ${emailsToVerify}, ${batch_size}, NOW()
       )
       RETURNING id, status, total_emails, created_at
     `
-    const jobId = rows[0].id
-    console.log(`[verification POST] Job created: id=${jobId} status=seeding`)
+    console.log(`[verification POST] Job created: id=${rows[0].id} status=seeding — cron will seed items`)
 
-    // Seed job items in chunks of 50k to avoid query timeouts on large lists
-    const SEED_CHUNK = 50000
-    let offset = 0
-    let seeded = 0
-    while (true) {
-      const ids = await sql`
-        SELECT id, email FROM email_list_contacts
-        WHERE list_id = ${list_id}
-          AND (verification_status IS NULL OR verification_status = 'unverified')
-          AND user_id = ${session.id}
-        ORDER BY id
-        LIMIT ${SEED_CHUNK} OFFSET ${offset}
-      `
-      if (ids.length === 0) {
-        console.log(`[verification POST] Seed complete: offset=${offset} seeded=${seeded}`)
-        break
-      }
-
-      await sql`
-        INSERT INTO verification_job_items (job_id, contact_id, email)
-        SELECT ${jobId}, id, email
-        FROM email_list_contacts
-        WHERE id = ANY(${ids.map((r: { id: string }) => r.id)}::uuid[])
-          AND (verification_status IS NULL OR verification_status = 'unverified')
-      `
-      seeded += ids.length
-      console.log(`[verification POST] Seeded chunk: offset=${offset} chunk=${ids.length} total_seeded=${seeded}`)
-      if (ids.length < SEED_CHUNK) break
-      offset += SEED_CHUNK
-    }
-
-    // Seed complete — set to queued so cron picks it up immediately
-    await sql`
-      UPDATE verification_jobs
-      SET status = 'queued', total_emails = ${seeded}, next_run_at = NOW()
-      WHERE id = ${jobId}
-    `
-    console.log(`[verification POST] Job ${jobId} → queued with ${seeded} items`)
-
-    return ok({ ...rows[0], total_emails: seeded }, 201)
+    // Return immediately — no 504 risk
+    return ok(rows[0], 201)
   } catch (e) {
     console.error('[verification POST] Unhandled error:', e)
     return error('Failed to create verification job', 500)

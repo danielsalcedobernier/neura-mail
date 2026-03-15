@@ -18,6 +18,41 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   return ok(jobs[0])
 }
 
+// Pause or resume a job
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getSession()
+  if (!session) return unauthorized()
+  const { id } = await params
+  const body = await request.json()
+  const action = body.action as 'pause' | 'resume'
+
+  if (action === 'pause') {
+    const rows = await sql`
+      UPDATE verification_jobs SET status = 'paused'
+      WHERE id = ${id} AND user_id = ${session.id}
+        AND status IN ('queued', 'running', 'seeding')
+      RETURNING id, status
+    `
+    if (!rows[0]) return notFound('Verification job')
+    console.log(`[verification PATCH] Paused job=${id}`)
+    return ok({ paused: true, id })
+  }
+
+  if (action === 'resume') {
+    const rows = await sql`
+      UPDATE verification_jobs SET status = 'queued', next_run_at = NOW()
+      WHERE id = ${id} AND user_id = ${session.id}
+        AND status = 'paused'
+      RETURNING id, status
+    `
+    if (!rows[0]) return notFound('Verification job')
+    console.log(`[verification PATCH] Resumed job=${id}`)
+    return ok({ resumed: true, id })
+  }
+
+  return error('Invalid action. Use pause or resume.', 400)
+}
+
 // Cancel a running job
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession()

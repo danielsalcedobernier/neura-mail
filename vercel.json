@@ -9,7 +9,35 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/cron/maintenance",
+      "path": "/api/cron/cleanup_expired_cache",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/cleanup_expired_sessions",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/expire_user_plans",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/generate_daily_stats",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/reset_smtp_hourly_counters",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/reset_smtp_daily_counters",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/retry_failed_sends",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/send_campaign_scheduled",
       "schedule": "* * * * *"
     }
   ]
