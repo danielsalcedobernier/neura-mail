@@ -212,22 +212,29 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
           await storeBatchInCache(results.slice(i, i + WRITE_CHUNK), job.user_id)
         }
 
-        // Update contact statuses in chunks
-        for (let i = 0; i < results.length; i += WRITE_CHUNK) {
-          const chunk = results.slice(i, i + WRITE_CHUNK)
-          const emails = chunk.map(r => r.email.toLowerCase())
-          const statuses = chunk.map(r => r.status)
-          await sql`
-            UPDATE email_list_contacts SET
-              verification_status = v.status::text,
-              verified_at = NOW()
-            FROM (
-              SELECT UNNEST(${emails}::text[]) AS email,
-                     UNNEST(${statuses}::text[]) AS status
-            ) AS v
-            WHERE email_list_contacts.email = v.email
-              AND email_list_contacts.user_id = ${job.user_id}
+        // Update contact statuses using contact_id for precise matching
+        if (matched.length > 0) {
+          // Build contact_id → status map from job items
+          const itemsWithContactId = await sql`
+            SELECT contact_id, result FROM verification_job_items
+            WHERE job_id = ${job.id} AND status = 'completed' AND result IS NOT NULL
           `
+          for (let i = 0; i < itemsWithContactId.length; i += WRITE_CHUNK) {
+            const chunk = itemsWithContactId.slice(i, i + WRITE_CHUNK)
+            const contactIds = chunk.map((r: { contact_id: string }) => r.contact_id)
+            const statuses = chunk.map((r: { result: string }) => r.result)
+            await sql`
+              UPDATE email_list_contacts SET
+                verification_status = v.status::text,
+                verified_at = NOW()
+              FROM (
+                SELECT UNNEST(${contactIds}::uuid[]) AS contact_id,
+                       UNNEST(${statuses}::text[])   AS status
+              ) AS v
+              WHERE email_list_contacts.id = v.contact_id
+            `
+          }
+          console.log(`[cron/verify] Updated ${itemsWithContactId.length} contacts by contact_id — job=${job.id}`)
         }
       }
 
@@ -277,11 +284,10 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
         UPDATE email_list_contacts SET
           verification_status = v.status::text, verified_at = NOW()
         FROM (
-          SELECT UNNEST(${cacheHits.map((i: { email: string }) => i.email.toLowerCase())}::text[])                         AS email,
+          SELECT UNNEST(${cacheHits.map((i: { id: string }) => i.id)}::uuid[])                                             AS contact_id,
                  UNNEST(${cacheHits.map((i: { email: string }) => cacheMap.get(i.email.toLowerCase())!.status)}::text[]) AS status
         ) AS v
-        WHERE email_list_contacts.email = v.email
-          AND email_list_contacts.user_id = ${job.user_id}
+        WHERE email_list_contacts.id = v.contact_id
       `
     }
 
