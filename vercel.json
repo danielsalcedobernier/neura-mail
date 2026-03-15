@@ -9,10 +9,6 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/cron/maintenance",
-      "schedule": "* * * * *"
-    },
-    {
       "path": "/api/cron/cleanup_expired_cache",
       "schedule": "*/10 * * * *"
     },
