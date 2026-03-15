@@ -13,12 +13,14 @@ const CRON_DESCRIPTIONS: Record<string, string> = {
   process_verification_queue: 'Picks up queued verification jobs and processes emails via cache/API',
   process_sending_queue: 'Sends individual emails for running campaigns (throttled by SMTP limits)',
   maintenance: 'Removes expired sessions, cache entries, and stale locks',
+  sync_verification_progress: 'Updates processed/valid/invalid counters on running verification jobs',
 }
 
 const CRON_ENDPOINTS: Record<string, string> = {
   process_verification_queue: '/api/cron/verify',
   process_sending_queue: '/api/cron/send',
   maintenance: '/api/cron/maintenance',
+  sync_verification_progress: '/api/cron/sync_verification_progress',
 }
 
 export default function CronPage() {
