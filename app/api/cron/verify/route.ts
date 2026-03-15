@@ -212,22 +212,29 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
           await storeBatchInCache(results.slice(i, i + WRITE_CHUNK), job.user_id)
         }
 
-        // Update contact statuses in chunks
-        for (let i = 0; i < results.length; i += WRITE_CHUNK) {
-          const chunk = results.slice(i, i + WRITE_CHUNK)
-          const emails = chunk.map(r => r.email.toLowerCase())
-          const statuses = chunk.map(r => r.status)
-          await sql`
-            UPDATE email_list_contacts SET
-              verification_status = v.status::text,
-              verified_at = NOW()
-            FROM (
-              SELECT UNNEST(${emails}::text[]) AS email,
-                     UNNEST(${statuses}::text[]) AS status
-            ) AS v
-            WHERE email_list_contacts.email = v.email
-              AND email_list_contacts.user_id = ${job.user_id}
+        // Update contact statuses using contact_id for precise matching
+        if (matched.length > 0) {
+          // Build contact_id → status map from job items
+          const itemsWithContactId = await sql`
+            SELECT contact_id, result FROM verification_job_items
+            WHERE job_id = ${job.id} AND status = 'completed' AND result IS NOT NULL
           `
+          for (let i = 0; i < itemsWithContactId.length; i += WRITE_CHUNK) {
+            const chunk = itemsWithContactId.slice(i, i + WRITE_CHUNK)
+            const contactIds = chunk.map((r: { contact_id: string }) => r.contact_id)
+            const statuses = chunk.map((r: { result: string }) => r.result)
+            await sql`
+              UPDATE email_list_contacts SET
+                verification_status = v.status::text,
+                verified_at = NOW()
+              FROM (
+                SELECT UNNEST(${contactIds}::uuid[]) AS contact_id,
+                       UNNEST(${statuses}::text[])   AS status
+              ) AS v
+              WHERE email_list_contacts.id = v.contact_id
+            `
+          }
+          console.log(`[cron/verify] Updated ${itemsWithContactId.length} contacts by contact_id — job=${job.id}`)
         }
       }
 
@@ -277,11 +284,10 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
         UPDATE email_list_contacts SET
           verification_status = v.status::text, verified_at = NOW()
         FROM (
-          SELECT UNNEST(${cacheHits.map((i: { email: string }) => i.email.toLowerCase())}::text[])                         AS email,
+          SELECT UNNEST(${cacheHits.map((i: { id: string }) => i.id)}::uuid[])                                             AS contact_id,
                  UNNEST(${cacheHits.map((i: { email: string }) => cacheMap.get(i.email.toLowerCase())!.status)}::text[]) AS status
         ) AS v
-        WHERE email_list_contacts.email = v.email
-          AND email_list_contacts.user_id = ${job.user_id}
+        WHERE email_list_contacts.id = v.contact_id
       `
     }
 
@@ -425,14 +431,29 @@ async function finalizeJob(job: { id: string; user_id: string; credits_reserved:
     `
   }
 
-  // Update list counts
-  await sql`
-    UPDATE email_lists SET
-      valid_count     = (SELECT COUNT(*) FROM email_list_contacts WHERE list_id = email_lists.id AND verification_status = 'valid'),
-      invalid_count   = (SELECT COUNT(*) FROM email_list_contacts WHERE list_id = email_lists.id AND verification_status = 'invalid'),
-      unverified_count = (SELECT COUNT(*) FROM email_list_contacts WHERE list_id = email_lists.id AND verification_status IS NULL)
-    WHERE id = (SELECT list_id FROM verification_jobs WHERE id = ${job.id})
-  `
+  // Update list counts — group mails.so statuses correctly
+  const listRow = await sql`SELECT list_id FROM verification_jobs WHERE id = ${job.id}`
+  const listId = listRow[0]?.list_id
+  if (listId) {
+    const counts = await sql`
+      SELECT
+        COUNT(*) FILTER (WHERE verification_status IN ('valid', 'catch_all'))             AS valid_count,
+        COUNT(*) FILTER (WHERE verification_status IN ('invalid', 'risky', 'unknown'))    AS invalid_count,
+        COUNT(*) FILTER (WHERE verification_status IS NULL OR verification_status = 'unverified') AS unverified_count
+      FROM email_list_contacts
+      WHERE list_id = ${listId}
+    `
+    const { valid_count, invalid_count, unverified_count } = counts[0]
+    await sql`
+      UPDATE email_lists SET
+        valid_count      = ${Number(valid_count)},
+        invalid_count    = ${Number(invalid_count)},
+        unverified_count = ${Number(unverified_count)},
+        updated_at       = NOW()
+      WHERE id = ${listId}
+    `
+    console.log(`[cron/verify] Updated list=${listId} valid=${valid_count} invalid=${invalid_count} unverified=${unverified_count}`)
+  }
 
   return { jobCompleted: job.id, ...s }
 }
