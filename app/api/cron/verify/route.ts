@@ -190,6 +190,7 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
         if (matched.length > 0) {
           for (let i = 0; i < matched.length; i += WRITE_CHUNK) {
             const chunk = matched.slice(i, i + WRITE_CHUNK)
+            const payload = JSON.stringify(chunk.map(x => ({ id: x.id, result: x.r!.status })))
             await sql`
               UPDATE verification_job_items SET
                 status = 'completed',
@@ -197,11 +198,8 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
                 from_cache = false,
                 credits_charged = 1,
                 processed_at = NOW()
-              FROM (
-                SELECT UNNEST(${chunk.map(x => x.id)}::uuid[])        AS id,
-                       UNNEST(${chunk.map(x => x.r!.status)}::text[]) AS result
-              ) AS v
-              WHERE verification_job_items.id = v.id::uuid
+              FROM json_to_recordset(${payload}::json) AS v(id uuid, result text)
+              WHERE verification_job_items.id = v.id
             `
           }
           console.log(`[cron/verify] Wrote ${matched.length} results in ${Math.ceil(matched.length/WRITE_CHUNK)} chunks — job=${job.id}`)
@@ -216,16 +214,12 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
         if (matched.length > 0) {
           for (let i = 0; i < matched.length; i += WRITE_CHUNK) {
             const chunk = matched.slice(i, i + WRITE_CHUNK)
-            const contactIds = chunk.map((x: { id: string }) => x.id)
-            const statuses = chunk.map((x: { r: { status: string } }) => x.r!.status)
+            const payload = JSON.stringify(chunk.map(x => ({ contact_id: x.id, status: x.r!.status })))
             await sql`
               UPDATE email_list_contacts SET
-                verification_status = v.status::text,
+                verification_status = v.status,
                 verified_at = NOW()
-              FROM (
-                SELECT UNNEST(${contactIds}::uuid[]) AS contact_id,
-                       UNNEST(${statuses}::text[])   AS status
-              ) AS v
+              FROM json_to_recordset(${payload}::json) AS v(contact_id uuid, status text)
               WHERE email_list_contacts.id = v.contact_id
             `
           }
@@ -284,6 +278,12 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
 
     // Process cache hits — cache saves the API call but still costs 1 credit
     if (cacheHits.length > 0) {
+      const cacheItemsPayload = JSON.stringify(
+        cacheHits.map((i: { id: string; email: string }) => ({
+          id: i.id,
+          result: cacheMap.get(i.email.toLowerCase())!.status,
+        }))
+      )
       await sql`
         UPDATE verification_job_items SET
           status = 'completed',
@@ -291,19 +291,19 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
           from_cache = true,
           credits_charged = 1,
           processed_at = NOW()
-        FROM (
-          SELECT UNNEST(${cacheHits.map((i: { id: string }) => i.id)}::uuid[])                                           AS id,
-                 UNNEST(${cacheHits.map((i: { email: string }) => cacheMap.get(i.email.toLowerCase())!.status)}::text[]) AS result
-        ) AS v
-        WHERE verification_job_items.id = v.id::uuid
+        FROM json_to_recordset(${cacheItemsPayload}::json) AS v(id uuid, result text)
+        WHERE verification_job_items.id = v.id
       `
+      const cacheContactsPayload = JSON.stringify(
+        cacheHits.map((i: { id: string; email: string }) => ({
+          contact_id: i.id,
+          status: cacheMap.get(i.email.toLowerCase())!.status,
+        }))
+      )
       await sql`
         UPDATE email_list_contacts SET
-          verification_status = v.status::text, verified_at = NOW()
-        FROM (
-          SELECT UNNEST(${cacheHits.map((i: { id: string }) => i.id)}::uuid[])                                             AS contact_id,
-                 UNNEST(${cacheHits.map((i: { email: string }) => cacheMap.get(i.email.toLowerCase())!.status)}::text[]) AS status
-        ) AS v
+          verification_status = v.status, verified_at = NOW()
+        FROM json_to_recordset(${cacheContactsPayload}::json) AS v(contact_id uuid, status text)
         WHERE email_list_contacts.id = v.contact_id
       `
     }
