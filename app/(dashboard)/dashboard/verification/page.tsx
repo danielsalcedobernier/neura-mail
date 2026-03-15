@@ -55,13 +55,31 @@ export default function VerificationPage() {
   }
 
   const pauseJob = async (id: string) => {
-    await fetch(`/api/verification/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/verification/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'pause' }),
+    })
+    if (res.ok) toast.success('Verificación pausada')
+    else toast.error('No se pudo pausar')
     mutate('/api/verification')
   }
 
   const resumeJob = async (id: string) => {
-    // resume not supported yet; show info
-    toast.info('Resume coming soon')
+    const res = await fetch(`/api/verification/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'resume' }),
+    })
+    if (res.ok) toast.success('Verificación reanudada')
+    else toast.error('No se pudo reanudar')
+    mutate('/api/verification')
+  }
+
+  const cancelJob = async (id: string) => {
+    const res = await fetch(`/api/verification/${id}`, { method: 'DELETE' })
+    if (res.ok) toast.success('Verificación cancelada y créditos reembolsados')
+    else toast.error('No se pudo cancelar')
     mutate('/api/verification')
   }
 
@@ -145,14 +163,19 @@ export default function VerificationPage() {
                         </p>
                       </div>
                       <div className="flex gap-1.5 shrink-0">
-                        {job.status === 'running' && (
-                          <Button size="sm" variant="outline" onClick={() => pauseJob(job.id as string)}>
+                        {['seeding', 'queued', 'running'].includes(job.status as string) && (
+                          <Button size="sm" variant="outline" onClick={() => pauseJob(job.id as string)} title="Pausar">
                             <Pause className="w-3.5 h-3.5" />
                           </Button>
                         )}
                         {job.status === 'paused' && (
-                          <Button size="sm" variant="outline" onClick={() => resumeJob(job.id as string)}>
+                          <Button size="sm" variant="outline" onClick={() => resumeJob(job.id as string)} title="Reanudar">
                             <Play className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                        {['seeding', 'queued', 'running', 'paused'].includes(job.status as string) && (
+                          <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => cancelJob(job.id as string)} title="Cancelar y reembolsar créditos">
+                            <XCircle className="w-3.5 h-3.5" />
                           </Button>
                         )}
                       </div>
