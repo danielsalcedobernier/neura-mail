@@ -62,52 +62,118 @@ function yieldToEventLoop() {
 
 // ─── main ────────────────────────────────────────────────────────────────────
 
+// Shared state between 'preview' and 'parse' messages
+let _lines = null
+let _hasHeader = false
+
 self.onmessage = async (e) => {
-  if (e.data.type !== 'parse') return
+  // ── PHASE 1: preview — read headers + sample rows so user can map columns ──
+  if (e.data.type === 'preview') {
+    const file = e.data.file
+    try {
+      let text
+      const ext = file.name.split('.').pop()?.toLowerCase()
+      if (ext === 'xlsx' || ext === 'xls') {
+        try {
+          self.importScripts('https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js')
+          const buf = await file.arrayBuffer()
+          const wb  = XLSX.read(buf, { type: 'array', dense: true })
+          const ws  = wb.Sheets[wb.SheetNames[0]]
+          text = XLSX.utils.sheet_to_csv(ws)
+        } catch {
+          self.postMessage({ type: 'error', message: 'No se pudo procesar el archivo Excel. Intenta exportarlo como CSV.' })
+          return
+        }
+      } else {
+        text = await file.text()
+      }
 
-  const file = e.data.file
+      _lines = text.split(/\r?\n/)
+      text = null
 
-  try {
-    let text
-    const ext = file.name.split('.').pop()?.toLowerCase()
+      const firstCols = parseCSVLine(_lines[0] || '')
+      _hasHeader = firstCols.some(c => /email|correo|nombre|name|first|last|apellido|mail/i.test(c))
 
-    if (ext === 'xlsx' || ext === 'xls') {
+      // Auto-suggest column mapping
+      const headers = _hasHeader ? firstCols : firstCols.map((_, i) => `Columna ${i + 1}`)
+      const emailCol   = _hasHeader ? detectEmailColIndex(firstCols) : -1
+      const nameCols   = _hasHeader ? detectNameCols(firstCols) : { first: -1, last: -1 }
+
+      // Sample first 3 data rows for preview
+      const startAt = _hasHeader ? 1 : 0
+      const sample = []
+      for (let i = startAt; i < Math.min(startAt + 3, _lines.length); i++) {
+        const line = _lines[i].trim()
+        if (line) sample.push(parseCSVLine(line))
+      }
+
+      self.postMessage({
+        type: 'preview',
+        headers,
+        sample,
+        suggested: { email: emailCol, first_name: nameCols.first, last_name: nameCols.last },
+        totalLines: _lines.length - (startAt),
+      })
+    } catch (err) {
+      self.postMessage({ type: 'error', message: err.message || 'Error al leer el archivo' })
+    }
+    return
+  }
+
+  // ── PHASE 2: parse — do the actual import with confirmed column mapping ──
+  if (e.data.type === 'parse') {
+    // mapping: { email: colIndex, first_name: colIndex | -1, last_name: colIndex | -1 }
+    const { mapping } = e.data
+
+    // If _lines is null it means preview wasn't called (direct parse with file — legacy path)
+    if (!_lines && e.data.file) {
+      const file = e.data.file
       try {
-        self.importScripts('https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js')
-        const buf = await file.arrayBuffer()
-        const wb  = XLSX.read(buf, { type: 'array', dense: true })
-        const ws  = wb.Sheets[wb.SheetNames[0]]
-        text = XLSX.utils.sheet_to_csv(ws)
-      } catch {
-        self.postMessage({ type: 'error', message: 'No se pudo procesar el archivo Excel. Intenta exportarlo como CSV.' })
+        let text
+        const ext = file.name.split('.').pop()?.toLowerCase()
+        if (ext === 'xlsx' || ext === 'xls') {
+          try {
+            self.importScripts('https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js')
+            const buf = await file.arrayBuffer()
+            const wb  = XLSX.read(buf, { type: 'array', dense: true })
+            const ws  = wb.Sheets[wb.SheetNames[0]]
+            text = XLSX.utils.sheet_to_csv(ws)
+          } catch {
+            self.postMessage({ type: 'error', message: 'No se pudo procesar el archivo Excel.' })
+            return
+          }
+        } else {
+          text = await file.text()
+        }
+        _lines = text.split(/\r?\n/)
+        text = null
+        const firstCols = parseCSVLine(_lines[0] || '')
+        _hasHeader = firstCols.some(c => /email|correo|nombre|name|first|last|apellido|mail/i.test(c))
+      } catch (err) {
+        self.postMessage({ type: 'error', message: err.message || 'Error al leer el archivo' })
         return
       }
-    } else {
-      text = await file.text()
     }
 
-    // Split into lines — for very large files avoid keeping two giant strings
-    const lines = text.split(/\r?\n/)
-    text = null  // free memory ASAP
+    if (!_lines) {
+      self.postMessage({ type: 'error', message: 'Primero envía el archivo en modo preview.' })
+      return
+    }
 
-    const total = lines.length
+    const startAt = _hasHeader ? 1 : 0
+    const total   = _lines.length - startAt
+    const emailColIdx     = mapping?.email      ?? -1
+    const firstNameColIdx = mapping?.first_name ?? -1
+    const lastNameColIdx  = mapping?.last_name  ?? -1
+    const fallback        = emailColIdx === -1
 
-    // Detect header on first line
-    const firstCols = parseCSVLine(lines[0] || '')
-    const hasHeader  = firstCols.some(c => /email|correo|nombre|name|first|last/i.test(c))
-    const emailCol   = hasHeader ? detectEmailColIndex(firstCols) : -1
-    const nameCols   = hasHeader ? detectNameCols(firstCols) : { first: -1, last: -1 }
-    const startAt    = hasHeader ? 1 : 0
-    const fallback   = emailCol === -1
-
-    // Use a plain object as a seen-map — faster than Set for millions of keys
     const seen = Object.create(null)
     let duplicates = 0
     let totalValid = 0
     let batch = []
 
-    for (let i = startAt; i < lines.length; i++) {
-      const line = lines[i].trim()
+    for (let i = startAt; i < _lines.length; i++) {
+      const line = _lines[i].trim()
       if (!line) continue
 
       const cols = parseCSVLine(line)
@@ -115,10 +181,10 @@ self.onmessage = async (e) => {
       let first_name = null
       let last_name  = null
 
-      if (!fallback && emailCol !== -1) {
-        email      = (cols[emailCol] || '').toLowerCase().trim()
-        first_name = nameCols.first !== -1 ? (cols[nameCols.first] || null) : null
-        last_name  = nameCols.last  !== -1 ? (cols[nameCols.last]  || null) : null
+      if (!fallback) {
+        email      = (cols[emailColIdx] || '').toLowerCase().trim()
+        first_name = firstNameColIdx !== -1 ? (cols[firstNameColIdx] || null) : null
+        last_name  = lastNameColIdx  !== -1 ? (cols[lastNameColIdx]  || null) : null
       } else {
         for (let c = 0; c < cols.length; c++) {
           const v = cols[c].trim()
@@ -143,21 +209,20 @@ self.onmessage = async (e) => {
         batch = []
       }
 
-      // Every CHUNK_LINES rows: yield to event loop + send progress
       if ((i - startAt) % CHUNK_LINES === 0 && i > startAt) {
-        self.postMessage({ type: 'progress', parsed: i - startAt, total: total - startAt })
+        self.postMessage({ type: 'progress', parsed: i - startAt, total })
         await yieldToEventLoop()
       }
     }
 
-    // Flush last partial batch
     if (batch.length > 0) {
       self.postMessage({ type: 'batch', rows: batch })
     }
 
     self.postMessage({ type: 'done', total: totalValid, duplicates })
 
-  } catch (err) {
-    self.postMessage({ type: 'error', message: err.message || 'Error al parsear el archivo' })
+    // free memory
+    _lines = null
+    return
   }
 }
