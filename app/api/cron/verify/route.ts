@@ -1,4 +1,4 @@
-export const maxDuration = 300
+export const maxDuration = 55
 
 import { NextRequest } from 'next/server'
 import sql from '@/lib/db'
@@ -6,7 +6,7 @@ import { withCronLock } from '@/lib/cron'
 import { checkCacheBulk, storeBatchInCache, submitBatch, pollBatch } from '@/lib/mailsso'
 import { ok, error } from '@/lib/api'
 
-const BATCH_SIZE = 50000 // mails.so supports up to 50k per batch
+const BATCH_SIZE = 5000 // 5k per batch = fast mails.so processing, no polling timeouts
 
 function validateCronRequest(request: NextRequest): boolean {
   const secret = process.env.CRON_SECRET
