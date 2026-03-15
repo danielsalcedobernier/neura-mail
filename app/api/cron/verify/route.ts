@@ -81,12 +81,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Pick ALL queued/running jobs that are due — process in parallel
+    // Pick ALL queued/running jobs that are due — never touch paused or seeding
     const jobs = await sql`
       SELECT vj.id, vj.user_id, vj.credits_reserved, vj.credits_used, vj.total_emails,
              vj.mailsso_batch_id, vj.mailsso_batch_submitted_at
       FROM verification_jobs vj
-      WHERE vj.status IN ('queued', 'running')  -- never touch 'seeding' jobs
+      WHERE vj.status IN ('queued', 'running')
         AND vj.next_run_at <= NOW()
       ORDER BY vj.created_at ASC
     `
@@ -98,13 +98,28 @@ export async function GET(request: NextRequest) {
 
     console.log(`[cron/verify] Processing ${jobs.length} job(s): ${jobs.map((j: { id: string }) => j.id).join(', ')}`)
 
-    // Mark all as running before starting parallel processing
+    // Mark as running — but only those that are still queued/running (not paused by a race condition)
     await sql`
       UPDATE verification_jobs SET status = 'running', started_at = COALESCE(started_at, NOW())
       WHERE id = ANY(${jobs.map((j: { id: string }) => j.id)}::uuid[])
+        AND status IN ('queued', 'running')
     `
 
-    const results = await Promise.all(jobs.map((job: typeof jobs[0]) => processJob(job)))
+    // Re-fetch to get only the jobs that are still 'running' (not paused mid-flight)
+    const jobIds = jobs.map((j: { id: string }) => j.id)
+    const activeJobs = await sql`
+      SELECT id, user_id, credits_reserved, credits_used, total_emails,
+             mailsso_batch_id, mailsso_batch_submitted_at
+      FROM verification_jobs
+      WHERE id = ANY(${jobIds}::uuid[]) AND status = 'running'
+    `
+
+    if (activeJobs.length === 0) {
+      console.log('[cron/verify] All jobs paused before processing started')
+      return { processed: 0, message: 'All jobs paused' }
+    }
+
+    const results = await Promise.all(activeJobs.map((job: typeof activeJobs[0]) => processJob(job)))
     console.log('[cron/verify] Tick results:', JSON.stringify(results))
     return { processed: jobs.length, results }
   })
@@ -170,39 +185,50 @@ async function processJob(job: { id: string; user_id: string; credits_reserved: 
           }))
           .filter(x => x.r)
 
+        // Write results in chunks to avoid query timeout on large batches
+        const WRITE_CHUNK = 5000
         if (matched.length > 0) {
-          await sql`
-            UPDATE verification_job_items SET
-              status = 'completed',
-              result = v.result,
-              from_cache = false,
-              credits_charged = 1,
-              processed_at = NOW()
-            FROM (
-              SELECT UNNEST(${matched.map(x => x.id)}::uuid[])   AS id,
-                     UNNEST(${matched.map(x => x.r!.status)}::text[]) AS result
-            ) AS v
-            WHERE verification_job_items.id = v.id::uuid
-          `
+          for (let i = 0; i < matched.length; i += WRITE_CHUNK) {
+            const chunk = matched.slice(i, i + WRITE_CHUNK)
+            await sql`
+              UPDATE verification_job_items SET
+                status = 'completed',
+                result = v.result,
+                from_cache = false,
+                credits_charged = 1,
+                processed_at = NOW()
+              FROM (
+                SELECT UNNEST(${chunk.map(x => x.id)}::uuid[])        AS id,
+                       UNNEST(${chunk.map(x => x.r!.status)}::text[]) AS result
+              ) AS v
+              WHERE verification_job_items.id = v.id::uuid
+            `
+          }
+          console.log(`[cron/verify] Wrote ${matched.length} results in ${Math.ceil(matched.length/WRITE_CHUNK)} chunks — job=${job.id}`)
         }
 
-        // Store all results in cache — 1 bulk INSERT
-        await storeBatchInCache(results, job.user_id)
+        // Store results in cache in chunks
+        for (let i = 0; i < results.length; i += WRITE_CHUNK) {
+          await storeBatchInCache(results.slice(i, i + WRITE_CHUNK), job.user_id)
+        }
 
-        // Bulk update contact statuses — 1 query
-        const emails = results.map(r => r.email.toLowerCase())
-        const statuses = results.map(r => r.status)
-        await sql`
-          UPDATE email_list_contacts SET
-            verification_status = v.status::text,
-            verified_at = NOW()
-          FROM (
-            SELECT UNNEST(${emails}::text[]) AS email,
-                   UNNEST(${statuses}::text[]) AS status
-          ) AS v
-          WHERE email_list_contacts.email = v.email
-            AND email_list_contacts.user_id = ${job.user_id}
-        `
+        // Update contact statuses in chunks
+        for (let i = 0; i < results.length; i += WRITE_CHUNK) {
+          const chunk = results.slice(i, i + WRITE_CHUNK)
+          const emails = chunk.map(r => r.email.toLowerCase())
+          const statuses = chunk.map(r => r.status)
+          await sql`
+            UPDATE email_list_contacts SET
+              verification_status = v.status::text,
+              verified_at = NOW()
+            FROM (
+              SELECT UNNEST(${emails}::text[]) AS email,
+                     UNNEST(${statuses}::text[]) AS status
+            ) AS v
+            WHERE email_list_contacts.email = v.email
+              AND email_list_contacts.user_id = ${job.user_id}
+          `
+        }
       }
 
       // Clear the batch id and check if more pending items exist
