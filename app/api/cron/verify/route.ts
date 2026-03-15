@@ -375,17 +375,30 @@ async function failJob(job: { id: string; user_id: string; credits_reserved: num
 
 // Check if job has more pending items or is complete — always syncs counters
 async function finalizeOrContinue(job: { id: string; user_id: string; credits_reserved: number }) {
-  // Always sync counters so the frontend stays up to date
+  // Always sync counters — single scan via CTE to avoid repeated $1 param error in Neon
   await sql`
+    WITH counts AS (
+      SELECT
+        COUNT(*) FILTER (WHERE result IS NOT NULL)    AS processed_emails,
+        COUNT(*) FILTER (WHERE result = 'valid')      AS valid_count,
+        COUNT(*) FILTER (WHERE result = 'invalid')    AS invalid_count,
+        COUNT(*) FILTER (WHERE result = 'risky')      AS risky_count,
+        COUNT(*) FILTER (WHERE result = 'catch_all')  AS catch_all_count,
+        COUNT(*) FILTER (WHERE result = 'unknown')    AS unknown_count,
+        COUNT(*) FILTER (WHERE from_cache = true)     AS cache_hit_count
+      FROM verification_job_items
+      WHERE job_id = ${job.id}
+    )
     UPDATE verification_jobs SET
-      processed_emails = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result IS NOT NULL),
-      valid_count      = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'valid'),
-      invalid_count    = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'invalid'),
-      risky_count      = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'risky'),
-      catch_all_count  = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'catch_all'),
-      unknown_count    = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND result = 'unknown'),
-      cache_hit_count  = (SELECT COUNT(*) FROM verification_job_items WHERE job_id = ${job.id} AND from_cache = true)
-    WHERE id = ${job.id}
+      processed_emails = counts.processed_emails,
+      valid_count      = counts.valid_count,
+      invalid_count    = counts.invalid_count,
+      risky_count      = counts.risky_count,
+      catch_all_count  = counts.catch_all_count,
+      unknown_count    = counts.unknown_count,
+      cache_hit_count  = counts.cache_hit_count
+    FROM counts
+    WHERE verification_jobs.id = ${job.id}
   `
 
   const remaining = await sql`
