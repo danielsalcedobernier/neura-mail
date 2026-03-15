@@ -37,7 +37,7 @@ async function getConfig(): Promise<MailssoConfig> {
 export async function verifyEmail(email: string): Promise<VerificationResult> {
   const config = await getConfig()
 
-  const url = new URL(`${config.baseUrl}/verify`)
+  const url = new URL(`${config.baseUrl}/validate`)
   url.searchParams.set('email', email)
 
   const res = await fetch(url.toString(), {
@@ -54,11 +54,15 @@ export async function verifyEmail(email: string): Promise<VerificationResult> {
 }
 
 function mapResult(email: string, r: Record<string, unknown>): VerificationResult {
+  // spec result enum: deliverable | undeliverable | risky | unknown
+  // catch_all is signaled by reason === 'catch_all' or !isv_nocatchall, not by result field
+  const isCatchAll = r.reason === 'catch_all' || r.isv_nocatchall === false
+
   let status: VerificationResult['status'] = 'unknown'
-  if (r.result === 'deliverable') status = 'valid'
+  if (isCatchAll) status = 'catch_all'
+  else if (r.result === 'deliverable') status = 'valid'
   else if (r.result === 'undeliverable') status = 'invalid'
   else if (r.result === 'risky') status = 'risky'
-  else if (r.result === 'catch_all') status = 'catch_all'
 
   return {
     email,
@@ -66,9 +70,9 @@ function mapResult(email: string, r: Record<string, unknown>): VerificationResul
     score: (r.score as number) ?? 0,
     mx_found: (r.isv_mx as boolean) ?? false,
     smtp_valid: (r.isv_format as boolean) ?? false,
-    is_disposable: false,
-    is_role_based: !(r.isv_nogeneric as boolean),
-    is_catch_all: !(r.isv_nocatchall as boolean),
+    is_disposable: r.reason === 'disposable',
+    is_role_based: r.isv_nogeneric === false,
+    is_catch_all: isCatchAll,
     provider: (r.mx_record as string) || '',
     raw: r,
   }
@@ -107,10 +111,13 @@ export async function pollBatch(batchId: string): Promise<VerificationResult[] |
 
   if (!res.ok) throw new Error(`mails.so poll error: ${res.status}`)
 
-  const data = await res.json()
+  // The spec wraps responses in { data, error } — handle both wrapped and unwrapped
+  const body = await res.json()
+  const data = body.data ?? body
 
-  // Still processing — finished_at is null
+  // Still processing — finished_at is null or emails not yet populated
   if (!data.finished_at) return null
+  if (!Array.isArray(data.emails) || data.emails.length === 0) return null
 
   return (data.emails as Record<string, unknown>[]).map(r =>
     mapResult(r.email as string, r)
