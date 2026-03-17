@@ -21,9 +21,9 @@ interface LocalVerificationProps {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CHUNK_SIZE         = 50_000   // emails per mails.so batch
-const POLL_INTERVAL_MS   = 10_000   // poll every 10s
-const MAX_POLL_SECONDS   = 800      // give up after 800s per batch
+const CHUNK_SIZE         = 1_000    // emails per mails.so batch
+const POLL_INTERVAL_MS   = 5_000    // poll every 5s (batches small, respond fast)
+const MAX_POLL_SECONDS   = 120      // give up after 120s per batch (1k emails resolves in seconds)
 const MAX_POLLS          = Math.ceil(MAX_POLL_SECONDS * 1000 / POLL_INTERVAL_MS)
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -151,19 +151,15 @@ export function LocalVerification({ jobId, jobName, totalEmails, onComplete }: L
 
         log('dim', `Guardando ${saveItems.length.toLocaleString()} resultados en DB...`)
 
-        // 5. Save results in sub-chunks of 5k to avoid payload size issues
-        const SAVE_CHUNK = 5000
-        for (let i = 0; i < saveItems.length; i += SAVE_CHUNK) {
-          if (stopRef.current) break
-          const saveRes = await fetch('/api/verification/local/save', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ job_id: jobId, items: saveItems.slice(i, i + SAVE_CHUNK) }),
-          })
-          if (!saveRes.ok) {
-            const err = await saveRes.json()
-            log('warn', `Save parcial falló: ${err.error ?? saveRes.status}`)
-          }
+        // 5. Save results (1k items fits in a single request)
+        const saveRes = await fetch('/api/verification/local/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ job_id: jobId, items: saveItems }),
+        })
+        if (!saveRes.ok) {
+          const err = await saveRes.json()
+          log('warn', `Save falló: ${err.error ?? saveRes.status}`)
         }
 
         totalDone += saveItems.length
