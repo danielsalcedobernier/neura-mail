@@ -47,6 +47,14 @@ function normaliseRow(raw: Record<string, unknown>) {
   }
 }
 
+interface StatusCounts {
+  valid: number
+  invalid: number
+  risky: number
+  catch_all: number
+  unknown: number
+}
+
 interface FileEntry {
   name: string
   status: 'pending' | 'reading' | 'uploading' | 'done' | 'error'
@@ -55,8 +63,11 @@ interface FileEntry {
   skipped: number
   currentBatch: number
   totalBatches: number
+  counts: StatusCounts
   error?: string
 }
+
+const EMPTY_COUNTS = (): StatusCounts => ({ valid: 0, invalid: 0, risky: 0, catch_all: 0, unknown: 0 })
 
 export default function CacheImportPage() {
   const inputRef                    = useRef<HTMLInputElement>(null)
@@ -81,6 +92,7 @@ export default function CacheImportPage() {
     const entries: FileEntry[] = fileList.map(f => ({
       name: f.name, status: 'pending',
       total: 0, uploaded: 0, skipped: 0, currentBatch: 0, totalBatches: 0,
+      counts: EMPTY_COUNTS(),
     }))
     setFiles(prev => [...prev, ...entries])
 
@@ -99,9 +111,17 @@ export default function CacheImportPage() {
         const skipped   = rawRows.length - validRows.length
         const batches   = Math.ceil(validRows.length / BATCH_SIZE)
 
+        // Tally status distribution from the file
+        const counts = EMPTY_COUNTS()
+        for (const r of validRows) {
+          const k = r.verification_status as keyof StatusCounts
+          if (k in counts) counts[k]++
+          else counts.unknown++
+        }
+
         updateFile(file.name, {
           status: 'uploading',
-          total: rawRows.length, skipped, totalBatches: batches,
+          total: rawRows.length, skipped, totalBatches: batches, counts,
         })
 
         let uploaded = 0
@@ -227,6 +247,23 @@ export default function CacheImportPage() {
                     </p>
                   )}
 
+                  {f.status === 'done' && (
+                    <div className="grid grid-cols-5 gap-1.5 pt-1">
+                      {([
+                        { key: 'valid',     label: 'Válido',       color: 'text-green-600' },
+                        { key: 'invalid',   label: 'Inválido',     color: 'text-destructive' },
+                        { key: 'risky',     label: 'Riesgoso',     color: 'text-yellow-600' },
+                        { key: 'catch_all', label: 'Catch-All',    color: 'text-blue-500' },
+                        { key: 'unknown',   label: 'Desconocido',  color: 'text-muted-foreground' },
+                      ] as const).map(({ key, label, color }) => (
+                        <div key={key} className="flex flex-col items-center bg-muted/50 rounded-md py-1.5 px-1">
+                          <span className={`text-xs font-semibold ${color}`}>{f.counts[key].toLocaleString('es-CL')}</span>
+                          <span className="text-[10px] text-muted-foreground">{label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {f.status === 'error' && (
                     <p className="text-xs font-mono text-destructive bg-destructive/10 rounded px-2 py-1">{f.error}</p>
                   )}
@@ -238,26 +275,49 @@ export default function CacheImportPage() {
       )}
 
       {/* Summary when all done */}
-      {isDone && (
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <p className="text-sm font-medium text-foreground">Resumen de importación</p>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: 'Total en archivos', value: totalRows.toLocaleString('es-CL') },
-                { label: 'Cargados al caché', value: totalUploaded.toLocaleString('es-CL') },
-                { label: 'Omitidos', value: totalSkipped.toLocaleString('es-CL') },
-              ].map(s => (
-                <div key={s.label} className="bg-muted/50 rounded-md p-3 text-center">
-                  <p className="text-lg font-semibold text-foreground">{s.value}</p>
-                  <p className="text-xs text-muted-foreground">{s.label}</p>
-                </div>
-              ))}
-            </div>
-            <Button size="sm" variant="outline" onClick={reset} className="w-full">Importar más archivos</Button>
-          </CardContent>
-        </Card>
-      )}
+      {isDone && (() => {
+        const totalCounts: StatusCounts = files.reduce((acc, f) => ({
+          valid:     acc.valid     + f.counts.valid,
+          invalid:   acc.invalid   + f.counts.invalid,
+          risky:     acc.risky     + f.counts.risky,
+          catch_all: acc.catch_all + f.counts.catch_all,
+          unknown:   acc.unknown   + f.counts.unknown,
+        }), EMPTY_COUNTS())
+        return (
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <p className="text-sm font-medium text-foreground">Resumen de importación</p>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { label: 'Total en archivos', value: totalRows.toLocaleString('es-CL') },
+                  { label: 'Cargados al caché', value: totalUploaded.toLocaleString('es-CL') },
+                  { label: 'Omitidos',          value: totalSkipped.toLocaleString('es-CL') },
+                ].map(s => (
+                  <div key={s.label} className="bg-muted/50 rounded-md p-3 text-center">
+                    <p className="text-lg font-semibold text-foreground">{s.value}</p>
+                    <p className="text-xs text-muted-foreground">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-5 gap-2">
+                {([
+                  { key: 'valid',     label: 'Válido',      color: 'text-green-600' },
+                  { key: 'invalid',   label: 'Inválido',    color: 'text-destructive' },
+                  { key: 'risky',     label: 'Riesgoso',    color: 'text-yellow-600' },
+                  { key: 'catch_all', label: 'Catch-All',   color: 'text-blue-500' },
+                  { key: 'unknown',   label: 'Desconocido', color: 'text-muted-foreground' },
+                ] as const).map(({ key, label, color }) => (
+                  <div key={key} className="flex flex-col items-center bg-muted/50 rounded-md py-2 px-1">
+                    <span className={`text-sm font-semibold ${color}`}>{totalCounts[key].toLocaleString('es-CL')}</span>
+                    <span className="text-[10px] text-muted-foreground">{label}</span>
+                  </div>
+                ))}
+              </div>
+              <Button size="sm" variant="outline" onClick={reset} className="w-full">Importar más archivos</Button>
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       {/* Column reference */}
       {files.length === 0 && (
