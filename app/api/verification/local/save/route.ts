@@ -1,9 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { ok, unauthorized, error, serverError } from '@/lib/api'
-import { neon } from '@neondatabase/serverless'
-
-const sql = neon(process.env.DATABASE_URL!)
+import sql from '@/lib/db'
 
 /**
  * POST /api/verification/local/save
@@ -44,15 +42,19 @@ export async function POST(req: NextRequest) {
       WHERE verification_job_items.id = v.id
     `
 
-    // Update email_list_contacts via verification_job_items.contact_id (not item.id)
+    // Update email_list_contacts via verification_job_items.contact_id
+    // Postgres UPDATE...FROM does not support JOIN — use a subquery instead
     const contactsPayload = JSON.stringify(items.map(x => ({ item_id: x.id, status: x.status })))
     await sql`
       UPDATE email_list_contacts SET
-        verification_status = v.status,
+        verification_status = sub.status,
         verified_at = NOW()
-      FROM json_to_recordset(${contactsPayload}::json) AS v(item_id uuid, status text)
-      JOIN verification_job_items ji ON ji.id = v.item_id
-      WHERE email_list_contacts.id = ji.contact_id
+      FROM (
+        SELECT ji.contact_id, v.status
+        FROM json_to_recordset(${contactsPayload}::json) AS v(item_id uuid, status text)
+        INNER JOIN verification_job_items ji ON ji.id = v.item_id
+      ) AS sub
+      WHERE email_list_contacts.id = sub.contact_id
     `
 
     return ok({ saved: items.length })

@@ -1,9 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { ok, unauthorized, error } from '@/lib/api'
-import { neon } from '@neondatabase/serverless'
-
-const sql = neon(process.env.DATABASE_URL!)
+import sql from '@/lib/db'
 
 /**
  * GET /api/verification/local/pending?job_id=xxx&limit=50000&offset=0

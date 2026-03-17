@@ -1,9 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { ok, unauthorized, error, serverError } from '@/lib/api'
-import { neon } from '@neondatabase/serverless'
-
-const sql = neon(process.env.DATABASE_URL!)
+import sql from '@/lib/db'
 
 const MAILSSO_API_KEY = process.env.MAILSSO_API_KEY!
 const MAILSSO_BASE    = 'https://api.mails.so/v1'
