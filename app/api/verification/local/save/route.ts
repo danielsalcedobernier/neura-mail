@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     `
     if (jobs.length === 0) return unauthorized()
 
-    // Write results to verification_job_items
+    // Write results to verification_job_items using item id
     const payload = JSON.stringify(items.map(x => ({ id: x.id, result: x.status })))
     await sql`
       UPDATE verification_job_items SET
@@ -44,14 +44,15 @@ export async function POST(req: NextRequest) {
       WHERE verification_job_items.id = v.id
     `
 
-    // Update email_list_contacts
-    const contactsPayload = JSON.stringify(items.map(x => ({ contact_id: x.id, status: x.status })))
+    // Update email_list_contacts via verification_job_items.contact_id (not item.id)
+    const contactsPayload = JSON.stringify(items.map(x => ({ item_id: x.id, status: x.status })))
     await sql`
       UPDATE email_list_contacts SET
         verification_status = v.status,
         verified_at = NOW()
-      FROM json_to_recordset(${contactsPayload}::json) AS v(contact_id uuid, status text)
-      WHERE email_list_contacts.id = v.contact_id
+      FROM json_to_recordset(${contactsPayload}::json) AS v(item_id uuid, status text)
+      JOIN verification_job_items ji ON ji.id = v.item_id
+      WHERE email_list_contacts.id = ji.contact_id
     `
 
     return ok({ saved: items.length })
