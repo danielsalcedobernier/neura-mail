@@ -8,9 +8,8 @@ import { Progress } from '@/components/ui/progress'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
-const BATCH_SIZE = 5_000   // rows per API call
+const BATCH_SIZE = 5_000
 
-// Map mails.so result + reason → our verification_status enum
 function mapStatus(row: Record<string, unknown>): string {
   const result = String(row.result ?? row.Result ?? row.status ?? row.Status ?? '').toLowerCase()
   const reason = String(row.reason ?? row.Reason ?? '').toLowerCase()
@@ -31,12 +30,10 @@ function parseBoolean(val: unknown): boolean {
 }
 
 function normaliseRow(raw: Record<string, unknown>) {
-  // Detect email column — could be "email", "Email", "correo", etc.
   const emailKey = Object.keys(raw).find(k =>
     k.toLowerCase().includes('email') || k.toLowerCase().includes('correo') || k.toLowerCase() === 'e-mail'
   )
   const email = String(raw[emailKey ?? ''] ?? '').toLowerCase().trim()
-
   return {
     email,
     verification_status: mapStatus(raw),
@@ -50,107 +47,112 @@ function normaliseRow(raw: Record<string, unknown>) {
   }
 }
 
-type Phase = 'idle' | 'reading' | 'uploading' | 'done' | 'error'
-
-interface Stats {
+interface FileEntry {
+  name: string
+  status: 'pending' | 'reading' | 'uploading' | 'done' | 'error'
   total: number
   uploaded: number
-  skipped: number   // rows without a valid email
+  skipped: number
+  currentBatch: number
+  totalBatches: number
+  error?: string
 }
 
 export default function CacheImportPage() {
-  const inputRef                      = useRef<HTMLInputElement>(null)
-  const [dragging, setDragging]       = useState(false)
-  const [phase, setPhase]             = useState<Phase>('idle')
-  const [fileName, setFileName]       = useState('')
-  const [stats, setStats]             = useState<Stats>({ total: 0, uploaded: 0, skipped: 0 })
-  const [currentBatch, setCurrentBatch] = useState(0)
-  const [totalBatches, setTotalBatches] = useState(0)
-  const [errorMsg, setErrorMsg]       = useState('')
-  const stopRef                       = useRef(false)
+  const inputRef                    = useRef<HTMLInputElement>(null)
+  const [dragging, setDragging]     = useState(false)
+  const [files, setFiles]           = useState<FileEntry[]>([])
+  const [running, setRunning]       = useState(false)
+  const stopRef                     = useRef(false)
 
-  const pct = totalBatches > 0 ? Math.round((currentBatch / totalBatches) * 100) : 0
+  const isDone    = files.length > 0 && files.every(f => f.status === 'done' || f.status === 'error')
+  const totalUploaded = files.reduce((s, f) => s + f.uploaded, 0)
+  const totalSkipped  = files.reduce((s, f) => s + f.skipped, 0)
+  const totalRows     = files.reduce((s, f) => s + f.total, 0)
 
-  const processFile = useCallback(async (file: File) => {
-    if (!file) return
+  const updateFile = useCallback((name: string, patch: Partial<FileEntry>) => {
+    setFiles(prev => prev.map(f => f.name === name ? { ...f, ...patch } : f))
+  }, [])
+
+  const processFiles = useCallback(async (fileList: File[]) => {
     stopRef.current = false
-    setPhase('reading')
-    setFileName(file.name)
-    setStats({ total: 0, uploaded: 0, skipped: 0 })
-    setCurrentBatch(0)
-    setTotalBatches(0)
-    setErrorMsg('')
+    setRunning(true)
 
-    try {
-      const buffer   = await file.arrayBuffer()
-      const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: true, dense: true })
-      const sheet    = workbook.Sheets[workbook.SheetNames[0]]
-      const rawRows  = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet)
+    const entries: FileEntry[] = fileList.map(f => ({
+      name: f.name, status: 'pending',
+      total: 0, uploaded: 0, skipped: 0, currentBatch: 0, totalBatches: 0,
+    }))
+    setFiles(prev => [...prev, ...entries])
 
-      const validRows = rawRows
-        .map(normaliseRow)
-        .filter(r => r.email && r.email.includes('@'))
+    for (const file of fileList) {
+      if (stopRef.current) break
 
-      const skipped    = rawRows.length - validRows.length
-      const batches    = Math.ceil(validRows.length / BATCH_SIZE)
+      updateFile(file.name, { status: 'reading' })
 
-      setStats({ total: rawRows.length, uploaded: 0, skipped })
-      setTotalBatches(batches)
-      setPhase('uploading')
+      try {
+        const buffer   = await file.arrayBuffer()
+        const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: true, dense: true })
+        const sheet    = workbook.Sheets[workbook.SheetNames[0]]
+        const rawRows  = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet)
 
-      let uploaded = 0
+        const validRows = rawRows.map(normaliseRow).filter(r => r.email && r.email.includes('@'))
+        const skipped   = rawRows.length - validRows.length
+        const batches   = Math.ceil(validRows.length / BATCH_SIZE)
 
-      for (let i = 0; i < batches; i++) {
-        if (stopRef.current) break
-        const chunk = validRows.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE)
-
-        const res = await fetch('/api/admin/cache-import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rows: chunk }),
+        updateFile(file.name, {
+          status: 'uploading',
+          total: rawRows.length, skipped, totalBatches: batches,
         })
 
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}))
-          throw new Error(err.error ?? `Error ${res.status} en batch ${i + 1}`)
+        let uploaded = 0
+        for (let i = 0; i < batches; i++) {
+          if (stopRef.current) break
+          const chunk = validRows.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE)
+
+          const res = await fetch('/api/admin/cache-import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rows: chunk }),
+          })
+
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}))
+            throw new Error(err.error ?? `Error ${res.status} en batch ${i + 1}`)
+          }
+
+          uploaded += chunk.length
+          updateFile(file.name, { currentBatch: i + 1, uploaded })
+          await new Promise(r => setTimeout(r, 50))
         }
 
-        uploaded += chunk.length
-        setCurrentBatch(i + 1)
-        setStats(prev => ({ ...prev, uploaded }))
-
-        // Yield between batches
-        await new Promise(r => setTimeout(r, 50))
+        updateFile(file.name, { status: 'done' })
+      } catch (e: unknown) {
+        updateFile(file.name, { status: 'error', error: (e as Error).message })
       }
-
-      setPhase('done')
-    } catch (e: unknown) {
-      setErrorMsg((e as Error).message)
-      setPhase('error')
     }
-  }, [])
+
+    setRunning(false)
+  }, [updateFile])
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setDragging(false)
-    const file = e.dataTransfer.files[0]
-    if (file) processFile(file)
-  }, [processFile])
+    const dropped = Array.from(e.dataTransfer.files).filter(f =>
+      f.name.endsWith('.xlsx') || f.name.endsWith('.xls') || f.name.endsWith('.csv')
+    )
+    if (dropped.length > 0) processFiles(dropped)
+  }, [processFiles])
 
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) processFile(file)
+    const selected = Array.from(e.target.files ?? [])
+    if (selected.length > 0) processFiles(selected)
     e.target.value = ''
   }
 
   const reset = () => {
     stopRef.current = true
-    setPhase('idle')
-    setFileName('')
-    setStats({ total: 0, uploaded: 0, skipped: 0 })
-    setCurrentBatch(0)
-    setTotalBatches(0)
-    setErrorMsg('')
+    setFiles([])
+    setRunning(false)
   }
 
   return (
@@ -158,17 +160,17 @@ export default function CacheImportPage() {
       <div>
         <h1 className="text-xl font-semibold text-foreground">Importar caché de verificación</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Sube un archivo exportado por mails.so para pre-cargar el caché global. Los usuarios que verifiquen esos emails no gastarán créditos ni llamarán a la API.
+          Sube uno o varios archivos exportados por mails.so para pre-cargar el caché global. Los usuarios que verifiquen esos emails no gastarán créditos ni llamarán a la API.
         </p>
       </div>
 
-      {/* Drop zone */}
-      {phase === 'idle' && (
+      {/* Drop zone — always visible unless running */}
+      {!running && (
         <Card>
           <CardContent className="p-0">
             <div
               className={cn(
-                'border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors',
+                'border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors',
                 dragging ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
               )}
               onDragOver={e => { e.preventDefault(); setDragging(true) }}
@@ -176,96 +178,89 @@ export default function CacheImportPage() {
               onDrop={onDrop}
               onClick={() => inputRef.current?.click()}
             >
-              <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onInputChange} />
+              <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" multiple onChange={onInputChange} />
               <Upload className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-              <p className="text-sm font-medium text-foreground">Arrastra un archivo Excel o CSV aquí</p>
+              <p className="text-sm font-medium text-foreground">Arrastra uno o varios archivos Excel o CSV</p>
               <p className="text-xs text-muted-foreground mt-1">o haz clic para seleccionar — .xlsx, .xls, .csv</p>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Reading */}
-      {phase === 'reading' && (
-        <Card>
-          <CardContent className="p-6 flex items-center gap-3">
-            <Loader2 className="w-5 h-5 animate-spin text-primary shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-foreground">Leyendo archivo...</p>
-              <p className="text-xs text-muted-foreground truncate max-w-xs">{fileName}</p>
-            </div>
-          </CardContent>
-        </Card>
+      {/* File list */}
+      {files.length > 0 && (
+        <div className="space-y-2">
+          {files.map(f => {
+            const pct = f.totalBatches > 0 ? Math.round((f.currentBatch / f.totalBatches) * 100) : 0
+            return (
+              <Card key={f.name} className={cn(
+                f.status === 'done'  && 'border-green-500/30 bg-green-500/5',
+                f.status === 'error' && 'border-destructive/30 bg-destructive/5',
+              )}>
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {f.status === 'pending'   && <FileSpreadsheet className="w-4 h-4 text-muted-foreground shrink-0" />}
+                      {f.status === 'reading'   && <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />}
+                      {f.status === 'uploading' && <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />}
+                      {f.status === 'done'      && <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />}
+                      {f.status === 'error'     && <AlertCircle className="w-4 h-4 text-destructive shrink-0" />}
+                      <span className="text-sm font-medium truncate">{f.name}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {f.status === 'pending'   && 'En cola'}
+                      {f.status === 'reading'   && 'Leyendo...'}
+                      {f.status === 'uploading' && `${pct}%`}
+                      {f.status === 'done'      && `${f.uploaded.toLocaleString('es-CL')} subidos`}
+                      {f.status === 'error'     && 'Error'}
+                    </span>
+                  </div>
+
+                  {f.status === 'uploading' && (
+                    <Progress value={pct} className="h-1.5" />
+                  )}
+
+                  {f.status === 'uploading' && (
+                    <p className="text-xs text-muted-foreground">
+                      Batch {f.currentBatch}/{f.totalBatches} · {f.uploaded.toLocaleString('es-CL')} filas
+                      {f.skipped > 0 && <span className="text-orange-500"> · {f.skipped.toLocaleString('es-CL')} omitidas</span>}
+                    </p>
+                  )}
+
+                  {f.status === 'error' && (
+                    <p className="text-xs font-mono text-destructive bg-destructive/10 rounded px-2 py-1">{f.error}</p>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
       )}
 
-      {/* Uploading */}
-      {phase === 'uploading' && (
+      {/* Summary when all done */}
+      {isDone && (
         <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-4 h-4 text-muted-foreground" />
-                <CardTitle className="text-sm font-medium truncate max-w-xs">{fileName}</CardTitle>
-              </div>
-              <Button size="sm" variant="ghost" onClick={reset} className="h-7 w-7 p-0">
-                <X className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-            <CardDescription>
-              Batch {currentBatch} / {totalBatches} — {stats.uploaded.toLocaleString('es-CL')} filas subidas
-              {stats.skipped > 0 && <span className="text-orange-500"> · {stats.skipped.toLocaleString('es-CL')} sin email válido</span>}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-0 space-y-3">
-            <Progress value={pct} className="h-2" />
-            <p className="text-xs text-muted-foreground text-right">{pct}%</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Done */}
-      {phase === 'done' && (
-        <Card className="border-green-500/30 bg-green-500/5">
-          <CardContent className="p-6 space-y-3">
-            <div className="flex items-center gap-2 text-green-600">
-              <CheckCircle2 className="w-5 h-5 shrink-0" />
-              <p className="text-sm font-medium">Importación completada</p>
-            </div>
+          <CardContent className="p-4 space-y-3">
+            <p className="text-sm font-medium text-foreground">Resumen de importación</p>
             <div className="grid grid-cols-3 gap-3">
               {[
-                { label: 'Total en archivo', value: stats.total.toLocaleString('es-CL') },
-                { label: 'Cargados al caché', value: stats.uploaded.toLocaleString('es-CL') },
-                { label: 'Omitidos', value: stats.skipped.toLocaleString('es-CL') },
+                { label: 'Total en archivos', value: totalRows.toLocaleString('es-CL') },
+                { label: 'Cargados al caché', value: totalUploaded.toLocaleString('es-CL') },
+                { label: 'Omitidos', value: totalSkipped.toLocaleString('es-CL') },
               ].map(s => (
-                <div key={s.label} className="bg-background rounded-md p-3 text-center border">
+                <div key={s.label} className="bg-muted/50 rounded-md p-3 text-center">
                   <p className="text-lg font-semibold text-foreground">{s.value}</p>
                   <p className="text-xs text-muted-foreground">{s.label}</p>
                 </div>
               ))}
             </div>
-            <Button size="sm" variant="outline" onClick={reset} className="w-full">
-              Importar otro archivo
-            </Button>
+            <Button size="sm" variant="outline" onClick={reset} className="w-full">Importar más archivos</Button>
           </CardContent>
         </Card>
       )}
 
-      {/* Error */}
-      {phase === 'error' && (
-        <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="p-6 space-y-3">
-            <div className="flex items-center gap-2 text-destructive">
-              <AlertCircle className="w-5 h-5 shrink-0" />
-              <p className="text-sm font-medium">Error en la importación</p>
-            </div>
-            <p className="text-xs text-muted-foreground bg-muted rounded-md p-3 font-mono">{errorMsg}</p>
-            <Button size="sm" variant="outline" onClick={reset} className="w-full">Reintentar</Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Column mapping reference */}
-      {phase === 'idle' && (
+      {/* Column reference */}
+      {files.length === 0 && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
