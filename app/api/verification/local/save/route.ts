@@ -1,0 +1,61 @@
+import { NextRequest } from 'next/server'
+import { getSession } from '@/lib/auth'
+import { ok, unauthorized, badRequest, serverError } from '@/lib/api'
+import { neon } from '@neondatabase/serverless'
+
+const sql = neon(process.env.DATABASE_URL!)
+
+/**
+ * POST /api/verification/local/save
+ * Receives results from mails.so, writes to verification_job_items and email_list_contacts.
+ * Called after the browser polls and gets status === 'completed'.
+ */
+export async function POST(req: NextRequest) {
+  const session = await getSession()
+  if (!session) return unauthorized()
+
+  try {
+    const body = await req.json()
+    const { job_id, items } = body as {
+      job_id: string
+      items: { id: string; email: string; status: string }[]
+    }
+
+    if (!job_id || !Array.isArray(items) || items.length === 0) {
+      return badRequest('job_id and items[] required')
+    }
+
+    // Verify job belongs to user
+    const jobs = await sql`
+      SELECT id FROM verification_jobs WHERE id = ${job_id} AND user_id = ${session.id}
+    `
+    if (jobs.length === 0) return unauthorized()
+
+    // Write results to verification_job_items
+    const payload = JSON.stringify(items.map(x => ({ id: x.id, result: x.status })))
+    await sql`
+      UPDATE verification_job_items SET
+        status = 'completed',
+        result = v.result,
+        from_cache = false,
+        credits_charged = 1,
+        processed_at = NOW()
+      FROM json_to_recordset(${payload}::json) AS v(id uuid, result text)
+      WHERE verification_job_items.id = v.id
+    `
+
+    // Update email_list_contacts
+    const contactsPayload = JSON.stringify(items.map(x => ({ contact_id: x.id, status: x.status })))
+    await sql`
+      UPDATE email_list_contacts SET
+        verification_status = v.status,
+        verified_at = NOW()
+      FROM json_to_recordset(${contactsPayload}::json) AS v(contact_id uuid, status text)
+      WHERE email_list_contacts.id = v.contact_id
+    `
+
+    return ok({ saved: items.length })
+  } catch (e: unknown) {
+    return serverError((e as Error).message)
+  }
+}
