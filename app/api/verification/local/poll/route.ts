@@ -40,10 +40,24 @@ export async function GET(req: NextRequest) {
     const body = await res.json()
     const data  = body.data ?? body
 
-    const status    = data.status    ?? 'processing'
-    const total     = data.total     ?? 0
-    const processed = data.processed ?? 0
-    const results   = data.emails    ?? data.results ?? []
+    // mails.so signals completion via finished_at, not a status field
+    const isDone    = !!data.finished_at
+    const status    = isDone ? 'completed' : 'processing'
+    const total     = data.total     ?? (data.emails?.length ?? 0)
+    const processed = data.processed ?? (isDone ? total : 0)
+
+    // Map each email result to the same status values used in verification_job_items
+    // mails.so returns: result = deliverable|undeliverable|risky|unknown, reason = catch_all|disposable|...
+    const rawEmails: Record<string, unknown>[] = data.emails ?? []
+    const results = rawEmails.map(r => {
+      const isCatchAll = r.reason === 'catch_all' || r.isv_nocatchall === false
+      let mappedStatus = 'unknown'
+      if (isCatchAll)                      mappedStatus = 'catch_all'
+      else if (r.result === 'deliverable') mappedStatus = 'valid'
+      else if (r.result === 'undeliverable') mappedStatus = 'invalid'
+      else if (r.result === 'risky')       mappedStatus = 'risky'
+      return { email: r.email, status: mappedStatus }
+    })
 
     return ok({ status, total, processed, results })
   } catch (e: unknown) {
