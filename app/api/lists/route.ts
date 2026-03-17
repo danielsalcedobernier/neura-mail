@@ -14,12 +14,19 @@ export async function GET() {
   if (!session) return unauthorized()
 
   const lists = await sql`
-    SELECT id, name, description, status, total_count, valid_count, invalid_count,
-           unverified_count, processing_progress, file_name, file_size_bytes,
-           created_at, updated_at
-    FROM email_lists
-    WHERE user_id = ${session.id}
-    ORDER BY created_at DESC
+    SELECT el.id, el.name, el.description, el.status, el.total_count,
+           el.valid_count, el.invalid_count,
+           el.processing_progress, el.file_name, el.file_size_bytes,
+           el.created_at, el.updated_at,
+           -- Always compute the real unverified count to avoid stale cached values
+           (
+             SELECT COUNT(*) FROM email_list_contacts elc
+             WHERE elc.list_id = el.id
+               AND (elc.verification_status IS NULL OR elc.verification_status = 'unverified')
+           ) AS unverified_count
+    FROM email_lists el
+    WHERE el.user_id = ${session.id}
+    ORDER BY el.created_at DESC
   `
   return ok(lists)
 }
