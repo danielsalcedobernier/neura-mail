@@ -6,7 +6,7 @@ import { withCronLock } from '@/lib/cron'
 import { checkCacheBulk, storeBatchInCache, submitBatch, pollBatch } from '@/lib/mailsso'
 import { ok, error } from '@/lib/api'
 
-const BATCH_SIZE = 5000 // 5k per batch = fast mails.so processing, no polling timeouts
+const BATCH_SIZE = 25000 // 25k per batch — async polling means no timeout risk
 
 function validateCronRequest(request: NextRequest): boolean {
   const secret = process.env.CRON_SECRET
@@ -121,7 +121,14 @@ export async function GET(request: NextRequest) {
       return { processed: 0, message: 'All jobs paused' }
     }
 
-    const results = await Promise.all(activeJobs.map((job: typeof activeJobs[0]) => processJob(job)))
+    // mails.so allows max 10 concurrent batches — process in chunks of 10
+    const MAX_CONCURRENT = 10
+    const results: unknown[] = []
+    for (let i = 0; i < activeJobs.length; i += MAX_CONCURRENT) {
+      const chunk = activeJobs.slice(i, i + MAX_CONCURRENT)
+      const chunkResults = await Promise.all(chunk.map((job: typeof activeJobs[0]) => processJob(job)))
+      results.push(...chunkResults)
+    }
     console.log('[cron/verify] Tick results:', JSON.stringify(results))
     return { processed: jobs.length, results }
   })
