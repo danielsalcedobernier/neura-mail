@@ -21,12 +21,25 @@ const statusIcon = {
 }
 
 const jobStatusColor: Record<string, string> = {
-  queued:    'bg-muted text-muted-foreground',
-  running:   'bg-yellow-500/10 text-yellow-600',
-  completed: 'bg-green-500/10 text-green-600',
-  failed:    'bg-destructive/10 text-destructive',
-  paused:    'bg-orange-500/10 text-orange-600',
-  cancelled: 'bg-muted text-muted-foreground',
+  queued:          'bg-muted text-muted-foreground',
+  seeding:         'bg-blue-500/10 text-blue-600',
+  cache_sweeping:  'bg-muted text-muted-foreground',
+  running:         'bg-yellow-500/10 text-yellow-600',
+  completed:       'bg-green-500/10 text-green-600',
+  failed:          'bg-destructive/10 text-destructive',
+  paused:          'bg-orange-500/10 text-orange-600',
+  cancelled:       'bg-muted text-muted-foreground',
+}
+
+const jobStatusLabel: Record<string, string> = {
+  queued:         'En cola',
+  seeding:        'Preparando',
+  cache_sweeping: 'En cola',
+  running:        'Procesando',
+  completed:      'Completado',
+  failed:         'Fallido',
+  paused:         'Pausado',
+  cancelled:      'Cancelado',
 }
 
 function JobList({ jobs, onMutate }: { jobs: Record<string, unknown>[]; onMutate: () => void }) {
@@ -50,7 +63,7 @@ function JobList({ jobs, onMutate }: { jobs: Record<string, unknown>[]; onMutate
         const total     = Number(job.total_emails)
         const processed = Number(job.processed_emails)
         const pct       = total > 0 ? Math.round((processed / total) * 100) : 0
-        const isActive  = ['seeding', 'queued', 'running', 'paused', 'failed'].includes(job.status as string)
+        const isActive  = ['seeding', 'cache_sweeping', 'queued', 'running', 'paused', 'failed'].includes(job.status as string)
 
         return (
           <Card key={id}>
@@ -59,16 +72,16 @@ function JobList({ jobs, onMutate }: { jobs: Record<string, unknown>[]; onMutate
                 <div>
                   <div className="flex items-center gap-2 mb-0.5">
                     <p className="text-sm font-medium text-foreground">{job.name as string || 'Verification Job'}</p>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${jobStatusColor[job.status as string]}`}>
-                      {job.status as string}
-                    </span>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${jobStatusColor[job.status as string] ?? 'bg-muted text-muted-foreground'}`}>
+                {jobStatusLabel[job.status as string] ?? job.status}
+              </span>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {processed.toLocaleString('es-CL')} / {total.toLocaleString('es-CL')} procesados · {Number(job.credits_used ?? 0).toLocaleString()} créditos usados
                   </p>
                 </div>
                 <div className="flex gap-1.5 shrink-0 items-center">
-                  {['seeding', 'queued', 'running'].includes(job.status as string) && (
+                  {['seeding', 'cache_sweeping', 'queued', 'running'].includes(job.status as string) && (
                     <Button size="sm" variant="outline" onClick={() => pauseJob(id)} title="Pausar">
                       <Pause className="w-3.5 h-3.5" />
                     </Button>
