@@ -39,6 +39,7 @@ const adminNav: NavItem[] = [
   { label: 'Dedicated Servers', href: '/admin/servers', icon: Server },
   { label: 'API Connections', href: '/admin/api-connections', icon: Database },
   { label: 'Cron Jobs', href: '/admin/cron', icon: Zap },
+  { label: 'Divisor de BBDD', href: '/admin/db-splitter', icon: Database },
   { label: 'Campaigns', href: '/admin/campaigns', icon: Send },
   { label: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
   { label: 'Notifications', href: '/admin/notifications', icon: Bell },
