@@ -23,7 +23,7 @@ const statusIcon = {
 const jobStatusColor: Record<string, string> = {
   queued:          'bg-muted text-muted-foreground',
   seeding:         'bg-blue-500/10 text-blue-600',
-  cache_sweeping:  'bg-purple-500/10 text-purple-600',
+  cache_sweeping:  'bg-muted text-muted-foreground',
   running:         'bg-yellow-500/10 text-yellow-600',
   completed:       'bg-green-500/10 text-green-600',
   failed:          'bg-destructive/10 text-destructive',
@@ -34,7 +34,7 @@ const jobStatusColor: Record<string, string> = {
 const jobStatusLabel: Record<string, string> = {
   queued:         'En cola',
   seeding:        'Preparando',
-  cache_sweeping: 'Revisando caché',
+  cache_sweeping: 'En cola',
   running:        'Procesando',
   completed:      'Completado',
   failed:         'Fallido',
