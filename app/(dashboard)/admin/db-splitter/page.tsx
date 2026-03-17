@@ -54,12 +54,32 @@ export default function DbSplitterPage() {
 
       setFileInfo({ name: file.name, totalRows: allData.length, totalParts })
 
+      // Build headers from first row keys
+      const headers = allData.length > 0 ? Object.keys(allData[0]) : []
+
       for (let i = 0; i < totalParts; i++) {
-        const chunk   = allData.slice(i * ROWS_PER_FILE, (i + 1) * ROWS_PER_FILE)
-        const wb      = XLSX.utils.book_new()
-        const ws      = XLSX.utils.json_to_sheet(chunk)
-        XLSX.utils.book_append_sheet(wb, ws, 'Data')
-        XLSX.writeFile(wb, `${baseName}_parte${i + 1}de${totalParts}.xlsx`)
+        const chunk = allData.slice(i * ROWS_PER_FILE, (i + 1) * ROWS_PER_FILE)
+
+        // Build CSV string — escape values that contain commas, quotes or newlines
+        const escape = (val: unknown): string => {
+          const s = val === null || val === undefined ? '' : String(val)
+          return s.includes(',') || s.includes('"') || s.includes('\n')
+            ? `"${s.replace(/"/g, '""')}"`
+            : s
+        }
+        const rows = [
+          headers.map(escape).join(','),
+          ...chunk.map(row => headers.map(h => escape(row[h])).join(',')),
+        ]
+        const csv  = rows.join('\n')
+        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+        const url  = URL.createObjectURL(blob)
+        const a    = document.createElement('a')
+        a.href     = url
+        a.download = `${baseName}_parte${i + 1}de${totalParts}.csv`
+        a.click()
+        URL.revokeObjectURL(url)
+
         setCurrentPart(i + 1)
         // Yield to GC between chunks
         await new Promise(r => setTimeout(r, 80))
@@ -102,7 +122,7 @@ export default function DbSplitterPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-foreground">Divisor de BBDD</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Divide archivos Excel o CSV grandes en partes de {ROWS_PER_FILE.toLocaleString('es-CL')} filas. Todo se procesa localmente en tu navegador — ningún dato se sube al servidor.
+          Divide archivos Excel o CSV grandes en partes de {ROWS_PER_FILE.toLocaleString('es-CL')} filas. Los archivos de salida son siempre CSV. Todo se procesa localmente en tu navegador — ningún dato se sube al servidor.
         </p>
       </div>
 
