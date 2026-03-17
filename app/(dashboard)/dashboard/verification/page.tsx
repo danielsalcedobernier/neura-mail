@@ -2,13 +2,14 @@
 
 import { useState } from 'react'
 import useSWR, { mutate } from 'swr'
-import { CheckCircle, XCircle, AlertCircle, HelpCircle, Play, Pause, Loader2, Zap } from 'lucide-react'
+import { CheckCircle, XCircle, AlertCircle, HelpCircle, Play, Pause, Loader2, Zap, Monitor, Cloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
+import { LocalVerification } from '@/components/verification/local-verification'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
 
@@ -27,6 +28,124 @@ const jobStatusColor: Record<string, string> = {
   failed: 'bg-destructive/10 text-destructive',
   paused: 'bg-orange-500/10 text-orange-600',
   cancelled: 'bg-muted text-muted-foreground',
+}
+
+// ─── JobList ─────────────────────────────────────────────────────────────────
+
+function JobList({ jobs, onMutate }: { jobs: Record<string, unknown>[]; onMutate: () => void }) {
+  const [modes, setModes] = useState<Record<string, 'auto' | 'local'>>({})
+
+  const getMode = (id: string): 'auto' | 'local' => modes[id] ?? 'auto'
+  const setMode = (id: string, m: 'auto' | 'local') => setModes(prev => ({ ...prev, [id]: m }))
+
+  async function pauseJob(id: string) {
+    await fetch(`/api/verification/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pause' }) })
+    onMutate()
+  }
+  async function resumeJob(id: string) {
+    await fetch(`/api/verification/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'resume' }) })
+    onMutate()
+  }
+  async function cancelJob(id: string) {
+    await fetch(`/api/verification/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancel' }) })
+    onMutate()
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {jobs.map((job) => {
+        const id        = job.id as string
+        const total     = Number(job.total_emails)
+        const processed = Number(job.processed_emails)
+        const pct       = total > 0 ? Math.round((processed / total) * 100) : 0
+        const mode      = getMode(id)
+        const isActive  = ['seeding', 'queued', 'running', 'paused', 'failed'].includes(job.status as string)
+
+        return (
+          <Card key={id}>
+            <CardContent className="p-4">
+              {/* Header */}
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="text-sm font-medium text-foreground">{job.name as string || 'Verification Job'}</p>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${jobStatusColor[job.status as string]}`}>
+                      {job.status as string}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {processed.toLocaleString('es-CL')} / {total.toLocaleString('es-CL')} procesados · {Number(job.credits_used ?? 0).toLocaleString()} créditos usados
+                  </p>
+                </div>
+                <div className="flex gap-1.5 shrink-0 items-center">
+                  {/* Mode toggle — only for jobs with pending work */}
+                  {isActive && (
+                    <div className="flex items-center border rounded-md overflow-hidden text-xs mr-1">
+                      <button
+                        onClick={() => setMode(id, 'auto')}
+                        className={`flex items-center gap-1 px-2 py-1 transition-colors ${mode === 'auto' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
+                      >
+                        <Cloud className="w-3 h-3" /> Auto
+                      </button>
+                      <button
+                        onClick={() => setMode(id, 'local')}
+                        className={`flex items-center gap-1 px-2 py-1 transition-colors ${mode === 'local' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
+                      >
+                        <Monitor className="w-3 h-3" /> Local
+                      </button>
+                    </div>
+                  )}
+                  {['seeding', 'queued', 'running'].includes(job.status as string) && mode === 'auto' && (
+                    <Button size="sm" variant="outline" onClick={() => pauseJob(id)} title="Pausar">
+                      <Pause className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
+                  {job.status === 'paused' && mode === 'auto' && (
+                    <Button size="sm" variant="outline" onClick={() => resumeJob(id)} title="Reanudar">
+                      <Play className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
+                  {isActive && (
+                    <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => cancelJob(id)} title="Cancelar y reembolsar créditos">
+                      <XCircle className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Progress bar — auto mode */}
+              {mode === 'auto' && (job.status === 'running' || job.status === 'paused') && (
+                <Progress value={pct} className="h-1.5 mb-3" />
+              )}
+
+              {/* Counters */}
+              <div className="grid grid-cols-5 gap-2 mb-3">
+                {(['valid', 'invalid', 'risky', 'catch_all', 'unknown'] as const).map(k => (
+                  <div key={k} className="flex flex-col items-center bg-muted/50 rounded-md py-2 px-1">
+                    {statusIcon[k]}
+                    <span className="text-xs font-medium text-foreground mt-1">{Number(job[`${k}_count`] ?? 0).toLocaleString()}</span>
+                    <span className="text-xs text-muted-foreground">{{ valid: 'Válido', invalid: 'Inválido', risky: 'Riesgoso', catch_all: 'Catch-All', unknown: 'Desconocido' }[k]}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Local terminal */}
+              {mode === 'local' && isActive && (
+                <div className="border-t pt-3 mt-1">
+                  <LocalVerification
+                    jobId={id}
+                    jobName={job.name as string || 'Verification Job'}
+                    totalEmails={total}
+                    onComplete={onMutate}
+                  />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )
+      })}
+    </div>
+  )
 }
 
 export default function VerificationPage() {
@@ -52,35 +171,6 @@ export default function VerificationPage() {
       setSelectedList('')
     } catch { toast.error('Failed to start verification') }
     finally { setStarting(false) }
-  }
-
-  const pauseJob = async (id: string) => {
-    const res = await fetch(`/api/verification/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'pause' }),
-    })
-    if (res.ok) toast.success('Verificación pausada')
-    else toast.error('No se pudo pausar')
-    mutate('/api/verification')
-  }
-
-  const resumeJob = async (id: string) => {
-    const res = await fetch(`/api/verification/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'resume' }),
-    })
-    if (res.ok) toast.success('Verificación reanudada')
-    else toast.error('No se pudo reanudar')
-    mutate('/api/verification')
-  }
-
-  const cancelJob = async (id: string) => {
-    const res = await fetch(`/api/verification/${id}`, { method: 'DELETE' })
-    if (res.ok) toast.success('Verificación cancelada y créditos reembolsados')
-    else toast.error('No se pudo cancelar')
-    mutate('/api/verification')
   }
 
   return (
@@ -142,61 +232,7 @@ export default function VerificationPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="flex flex-col gap-3">
-            {jobs.map((job: Record<string, unknown>) => {
-              const total = Number(job.total_emails)
-              const processed = Number(job.processed_emails)
-              const pct = total > 0 ? Math.round((processed / total) * 100) : 0
-              return (
-                <Card key={job.id as string}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-4 mb-3">
-                      <div>
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <p className="text-sm font-medium text-foreground">{job.name as string || 'Verification Job'}</p>
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${jobStatusColor[job.status as string]}`}>
-                            {job.status as string}
-                          </span>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          {processed.toLocaleString('es-CL')} / {total.toLocaleString('es-CL')} procesados · {Number(job.credits_used)} créditos usados
-                        </p>
-                      </div>
-                      <div className="flex gap-1.5 shrink-0">
-                        {['seeding', 'queued', 'running'].includes(job.status as string) && (
-                          <Button size="sm" variant="outline" onClick={() => pauseJob(job.id as string)} title="Pausar">
-                            <Pause className="w-3.5 h-3.5" />
-                          </Button>
-                        )}
-                        {job.status === 'paused' && (
-                          <Button size="sm" variant="outline" onClick={() => resumeJob(job.id as string)} title="Reanudar">
-                            <Play className="w-3.5 h-3.5" />
-                          </Button>
-                        )}
-                        {['seeding', 'queued', 'running', 'paused'].includes(job.status as string) && (
-                          <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => cancelJob(job.id as string)} title="Cancelar y reembolsar créditos">
-                            <XCircle className="w-3.5 h-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                    {(job.status === 'running' || job.status === 'paused') && (
-                      <Progress value={pct} className="h-1.5 mb-3" />
-                    )}
-                    <div className="grid grid-cols-5 gap-2">
-                      {(['valid', 'invalid', 'risky', 'catch_all', 'unknown'] as const).map(k => (
-                        <div key={k} className="flex flex-col items-center bg-muted/50 rounded-md py-2 px-1">
-                          {statusIcon[k]}
-                          <span className="text-xs font-medium text-foreground mt-1">{Number(job[`${k}_count`] ?? 0).toLocaleString()}</span>
-                          <span className="text-xs text-muted-foreground capitalize">{{ valid: 'válido', invalid: 'inválido', risky: 'riesgoso', catch_all: 'catch-all', unknown: 'desconocido' }[k]}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            })}
-          </div>
+          <JobList jobs={jobs} onMutate={() => mutate('/api/verification')} />
         )}
       </div>
     </div>
