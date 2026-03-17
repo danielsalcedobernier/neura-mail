@@ -2,13 +2,11 @@ import { NextRequest } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { ok, unauthorized, error, serverError } from '@/lib/api'
 import sql from '@/lib/db'
-
-const MAILSSO_API_KEY = process.env.MAILSSO_API_KEY!
-const MAILSSO_BASE    = 'https://api.mails.so/v1'
+import { submitBatch } from '@/lib/mailsso'
 
 /**
  * POST /api/verification/local/submit
- * Receives a chunk of emails (up to 50k), submits to mails.so, returns batch_id.
+ * Receives a chunk of emails (up to 50k), submits to mails.so via submitBatch, returns batch_id.
  * Called from the browser — runs in the user's local session.
  */
 export async function POST(req: NextRequest) {
@@ -32,23 +30,8 @@ export async function POST(req: NextRequest) {
     `
     if (jobs.length === 0) return unauthorized()
 
-    // Submit to mails.so
-    const res = await fetch(`${MAILSSO_BASE}/emails/verify/bulk`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-mails-api-key': MAILSSO_API_KEY,
-      },
-      body: JSON.stringify({ emails: emails.map(e => e.email) }),
-    })
-
-    if (!res.ok) {
-      const err = await res.text()
-      return serverError(`mails.so error: ${err}`)
-    }
-
-    const data = await res.json()
-    const batchId: string = data.data?.id ?? data.id
+    // Use the same submitBatch used by the cron — reads API key and URL from api_connections table
+    const batchId = await submitBatch(emails.map(e => e.email))
 
     return ok({ batch_id: batchId, count: emails.length })
   } catch (e: unknown) {
