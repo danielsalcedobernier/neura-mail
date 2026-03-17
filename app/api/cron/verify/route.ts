@@ -49,9 +49,10 @@ export async function GET(request: NextRequest) {
         if (seeded === 0) {
           await failJob({ id: sj.id, user_id: sj.user_id, credits_reserved: sj.total_emails }, 'No emails found to verify')
         } else {
+          // Move to cache_sweeping first — check entire list against cache before calling mails.so
           await sql`
             UPDATE verification_jobs
-            SET status = 'queued', total_emails = ${seeded}, next_run_at = NOW()
+            SET status = 'cache_sweeping', total_emails = ${seeded}, next_run_at = NOW()
             WHERE id = ${sj.id}
           `
         }
@@ -67,6 +68,68 @@ export async function GET(request: NextRequest) {
         `
         console.log(`[cron/verify] Seeded chunk job=${sj.id} inserted=${ids.length} total=${offset + ids.length}`)
       }
+    }
+
+    // ── CACHE SWEEP PHASE: check entire list against cache before calling mails.so ──
+    const SWEEP_CHUNK = 100000
+    const sweepingJobs = await sql`
+      SELECT id, user_id FROM verification_jobs
+      WHERE status = 'cache_sweeping'
+      ORDER BY created_at ASC
+    `
+    for (const sw of sweepingJobs) {
+      // Take the next chunk of pending items and check against cache
+      const sweepItems = await sql`
+        SELECT id, email FROM verification_job_items
+        WHERE job_id = ${sw.id} AND status = 'pending'
+        ORDER BY id
+        LIMIT ${SWEEP_CHUNK}
+      `
+
+      if (sweepItems.length === 0) {
+        // Sweep complete — move to queued so mails.so phase can start
+        console.log(`[cron/verify] Cache sweep complete — job=${sw.id} moving to queued`)
+        await sql`
+          UPDATE verification_jobs SET status = 'queued', next_run_at = NOW()
+          WHERE id = ${sw.id}
+        `
+        continue
+      }
+
+      const cacheMap = await checkCacheBulk(sweepItems.map((i: { email: string }) => i.email))
+      const cacheHits = sweepItems.filter((i: { email: string }) => cacheMap.has(i.email.toLowerCase()))
+      const notInCache = sweepItems.filter((i: { email: string }) => !cacheMap.has(i.email.toLowerCase()))
+      console.log(`[cron/verify] Cache sweep — job=${sw.id} hits=${cacheHits.length} not_in_cache=${notInCache.length}`)
+
+      if (cacheHits.length > 0) {
+        const WRITE_CHUNK = 5000
+        for (let i = 0; i < cacheHits.length; i += WRITE_CHUNK) {
+          const chunk = cacheHits.slice(i, i + WRITE_CHUNK)
+          const itemsPayload = JSON.stringify(chunk.map((item: { id: string; email: string }) => ({
+            id: item.id,
+            result: cacheMap.get(item.email.toLowerCase())!.status,
+          })))
+          await sql`
+            UPDATE verification_job_items SET
+              status = 'completed', result = v.result,
+              from_cache = true, credits_charged = 1, processed_at = NOW()
+            FROM json_to_recordset(${itemsPayload}::json) AS v(id uuid, result text)
+            WHERE verification_job_items.id = v.id
+          `
+          const contactsPayload = JSON.stringify(chunk.map((item: { id: string; email: string }) => ({
+            contact_id: item.id,
+            status: cacheMap.get(item.email.toLowerCase())!.status,
+          })))
+          await sql`
+            UPDATE email_list_contacts SET verification_status = v.status, verified_at = NOW()
+            FROM json_to_recordset(${contactsPayload}::json) AS v(contact_id uuid, status text)
+            WHERE email_list_contacts.id = v.contact_id
+          `
+        }
+      }
+
+      // Schedule next sweep chunk immediately
+      await sql`UPDATE verification_jobs SET next_run_at = NOW() WHERE id = ${sw.id}`
     }
 
     // Detect and fail jobs stuck in 'running' for more than 30 minutes
