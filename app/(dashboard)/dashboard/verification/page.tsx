@@ -39,7 +39,7 @@ function JobList({ jobs, onMutate }: { jobs: Record<string, unknown>[]; onMutate
     onMutate()
   }
   async function cancelJob(id: string) {
-    await fetch(`/api/verification/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancel' }) })
+    await fetch(`/api/verification/${id}`, { method: 'DELETE' })
     onMutate()
   }
 
@@ -73,7 +73,7 @@ function JobList({ jobs, onMutate }: { jobs: Record<string, unknown>[]; onMutate
                       <Pause className="w-3.5 h-3.5" />
                     </Button>
                   )}
-                  {job.status === 'paused' && (
+                  {(job.status === 'paused' || job.status === 'failed') && (
                     <Button size="sm" variant="outline" onClick={() => resumeJob(id)} title="Reanudar">
                       <Play className="w-3.5 h-3.5" />
                     </Button>

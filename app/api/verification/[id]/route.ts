@@ -39,14 +39,26 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   if (action === 'resume') {
+    // Allow resuming paused OR failed jobs
+    // Clear mailsso_batch_id so the cron doesn't try to poll an expired/failed batch
     const rows = await sql`
-      UPDATE verification_jobs SET status = 'queued', next_run_at = NOW()
+      UPDATE verification_jobs
+      SET status = 'queued',
+          next_run_at = NOW(),
+          mailsso_batch_id = NULL,
+          mailsso_batch_submitted_at = NULL
       WHERE id = ${id} AND user_id = ${session.id}
-        AND status = 'paused'
+        AND status IN ('paused', 'failed')
       RETURNING id, status
     `
     if (!rows[0]) return notFound('Verification job')
-    console.log(`[verification PATCH] Resumed job=${id}`)
+
+    // Reset any stuck 'processing' items back to 'pending' so they get picked up again
+    await sql`
+      UPDATE verification_job_items SET status = 'pending'
+      WHERE job_id = ${id} AND status = 'processing'
+    `
+
     return ok({ resumed: true, id })
   }
 
@@ -63,17 +75,27 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     UPDATE verification_jobs
     SET status = 'cancelled'
     WHERE id = ${id} AND user_id = ${session.id}
-      AND status IN ('queued', 'running', 'paused')
-    RETURNING id, credits_reserved, credits_used
+      AND status IN ('queued', 'running', 'paused', 'failed')
+    RETURNING id
   `
   if (!rows[0]) return notFound('Verification job')
 
-  // Refund unused credits
-  const refund = (rows[0].credits_reserved || 0) - (rows[0].credits_used || 0)
+  // Refund only the emails that were never processed (pending + processing)
+  // These are the items that consumed a credit reservation but got no result
+  const pending = await sql`
+    SELECT COUNT(*) AS count FROM verification_job_items
+    WHERE job_id = ${id} AND status IN ('pending', 'processing')
+  `
+  const refund = Number(pending[0].count)
   if (refund > 0) {
     await sql`
       UPDATE user_credits SET balance = balance + ${refund}, updated_at = NOW()
       WHERE user_id = ${session.id}
+    `
+    // Mark those items as cancelled so counts stay accurate
+    await sql`
+      UPDATE verification_job_items SET status = 'cancelled'
+      WHERE job_id = ${id} AND status IN ('pending', 'processing')
     `
   }
   return ok({ cancelled: true, creditsRefunded: refund })
