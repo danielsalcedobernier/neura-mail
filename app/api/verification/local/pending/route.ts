@@ -24,6 +24,15 @@ export async function GET(req: NextRequest) {
   `
   if (jobs.length === 0) return unauthorized()
 
+  // On the first chunk, reset any stuck 'processing' items back to 'pending'
+  // (can happen if a previous run was interrupted mid-batch)
+  if (offset === 0) {
+    await sql`
+      UPDATE verification_job_items SET status = 'pending'
+      WHERE job_id = ${jobId} AND status = 'processing'
+    `
+  }
+
   const items = await sql`
     SELECT id, email FROM verification_job_items
     WHERE job_id = ${jobId} AND status = 'pending'
