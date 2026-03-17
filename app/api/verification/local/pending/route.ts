@@ -17,15 +17,21 @@ export async function GET(req: NextRequest) {
 
   if (!jobId) return error('job_id required', 400)
 
-  console.log('[v0] local/pending — jobId:', jobId, 'userId:', session.id, 'limit:', limit, 'offset:', offset)
-
   // Verify job belongs to user
   const jobs = await sql`
     SELECT id, total_emails FROM verification_jobs
     WHERE id = ${jobId} AND user_id = ${session.id}
   `
-  console.log('[v0] local/pending — jobs found:', jobs.length)
   if (jobs.length === 0) return unauthorized()
+
+  // On the first chunk, reset any stuck 'processing' items back to 'pending'
+  // (can happen if a previous run was interrupted mid-batch)
+  if (offset === 0) {
+    await sql`
+      UPDATE verification_job_items SET status = 'pending'
+      WHERE job_id = ${jobId} AND status = 'processing'
+    `
+  }
 
   const items = await sql`
     SELECT id, email FROM verification_job_items
@@ -33,13 +39,11 @@ export async function GET(req: NextRequest) {
     ORDER BY id
     LIMIT ${limit} OFFSET ${offset}
   `
-  console.log('[v0] local/pending — items returned:', items.length)
 
   const totalPending = await sql`
     SELECT COUNT(*) AS count FROM verification_job_items
     WHERE job_id = ${jobId} AND status = 'pending'
   `
-  console.log('[v0] local/pending — total_pending:', totalPending[0].count)
 
   return ok({
     items,

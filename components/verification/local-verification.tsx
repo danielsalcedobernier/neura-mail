@@ -74,7 +74,8 @@ export function LocalVerification({ jobId, jobName, totalEmails, onComplete }: L
           `/api/verification/local/pending?job_id=${jobId}&limit=${CHUNK_SIZE}&offset=${offset}`
         )
         if (!pendingRes.ok) throw new Error(`Error obteniendo pendientes: ${pendingRes.status}`)
-        const { items, total_pending } = await pendingRes.json()
+        const pendingJson = await pendingRes.json()
+        const { items, total_pending } = pendingJson.data ?? pendingJson
 
         if (!items || items.length === 0) {
           log('success', 'No hay mas emails pendientes. Verificacion completada.')
@@ -94,7 +95,8 @@ export function LocalVerification({ jobId, jobName, totalEmails, onComplete }: L
           const err = await submitRes.json()
           throw new Error(`Submit fallido: ${err.error ?? submitRes.status}`)
         }
-        const { batch_id } = await submitRes.json()
+        const submitJson = await submitRes.json()
+        const { batch_id } = submitJson.data ?? submitJson
         log('info', `Batch enviado — ID: ${batch_id}`)
 
         // 3. Poll until completed or timeout
@@ -114,7 +116,8 @@ export function LocalVerification({ jobId, jobName, totalEmails, onComplete }: L
             log('warn', `Poll ${polls} falló (${pollRes.status}), reintentando...`)
             continue
           }
-          const pollData = await pollRes.json()
+          const pollJson = await pollRes.json()
+          const pollData = pollJson.data ?? pollJson
           const { status, processed: pCount, total, results } = pollData
 
           const elapsed = (polls * POLL_INTERVAL_MS / 1000).toFixed(0)
