@@ -2,42 +2,34 @@
 
 import { useState } from 'react'
 import useSWR, { mutate } from 'swr'
-import { CheckCircle, XCircle, AlertCircle, HelpCircle, Play, Pause, Loader2, Zap, Monitor, Cloud } from 'lucide-react'
+import { CheckCircle, XCircle, AlertCircle, HelpCircle, Play, Pause, Loader2, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
-import { LocalVerification } from '@/components/verification/local-verification'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
 
 const statusIcon = {
-  valid: <CheckCircle className="w-4 h-4 text-green-500" />,
-  invalid: <XCircle className="w-4 h-4 text-destructive" />,
-  risky: <AlertCircle className="w-4 h-4 text-yellow-500" />,
-  unknown: <HelpCircle className="w-4 h-4 text-muted-foreground" />,
+  valid:    <CheckCircle className="w-4 h-4 text-green-500" />,
+  invalid:  <XCircle className="w-4 h-4 text-destructive" />,
+  risky:    <AlertCircle className="w-4 h-4 text-yellow-500" />,
+  unknown:  <HelpCircle className="w-4 h-4 text-muted-foreground" />,
   catch_all: <AlertCircle className="w-4 h-4 text-blue-400" />,
 }
 
 const jobStatusColor: Record<string, string> = {
-  queued: 'bg-muted text-muted-foreground',
-  running: 'bg-yellow-500/10 text-yellow-600',
+  queued:    'bg-muted text-muted-foreground',
+  running:   'bg-yellow-500/10 text-yellow-600',
   completed: 'bg-green-500/10 text-green-600',
-  failed: 'bg-destructive/10 text-destructive',
-  paused: 'bg-orange-500/10 text-orange-600',
+  failed:    'bg-destructive/10 text-destructive',
+  paused:    'bg-orange-500/10 text-orange-600',
   cancelled: 'bg-muted text-muted-foreground',
 }
 
-// ─── JobList ─────────────────────────────────────────────────────────────────
-
 function JobList({ jobs, onMutate }: { jobs: Record<string, unknown>[]; onMutate: () => void }) {
-  const [modes, setModes] = useState<Record<string, 'auto' | 'local'>>({})
-
-  const getMode = (id: string): 'auto' | 'local' => modes[id] ?? 'auto'
-  const setMode = (id: string, m: 'auto' | 'local') => setModes(prev => ({ ...prev, [id]: m }))
-
   async function pauseJob(id: string) {
     await fetch(`/api/verification/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pause' }) })
     onMutate()
@@ -58,13 +50,11 @@ function JobList({ jobs, onMutate }: { jobs: Record<string, unknown>[]; onMutate
         const total     = Number(job.total_emails)
         const processed = Number(job.processed_emails)
         const pct       = total > 0 ? Math.round((processed / total) * 100) : 0
-        const mode      = getMode(id)
         const isActive  = ['seeding', 'queued', 'running', 'paused', 'failed'].includes(job.status as string)
 
         return (
           <Card key={id}>
             <CardContent className="p-4">
-              {/* Header */}
               <div className="flex items-start justify-between gap-4 mb-3">
                 <div>
                   <div className="flex items-center gap-2 mb-0.5">
@@ -78,29 +68,12 @@ function JobList({ jobs, onMutate }: { jobs: Record<string, unknown>[]; onMutate
                   </p>
                 </div>
                 <div className="flex gap-1.5 shrink-0 items-center">
-                  {/* Mode toggle — only for jobs with pending work */}
-                  {isActive && (
-                    <div className="flex items-center border rounded-md overflow-hidden text-xs mr-1">
-                      <button
-                        onClick={() => setMode(id, 'auto')}
-                        className={`flex items-center gap-1 px-2 py-1 transition-colors ${mode === 'auto' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
-                      >
-                        <Cloud className="w-3 h-3" /> Auto
-                      </button>
-                      <button
-                        onClick={() => setMode(id, 'local')}
-                        className={`flex items-center gap-1 px-2 py-1 transition-colors ${mode === 'local' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
-                      >
-                        <Monitor className="w-3 h-3" /> Local
-                      </button>
-                    </div>
-                  )}
-                  {['seeding', 'queued', 'running'].includes(job.status as string) && mode === 'auto' && (
+                  {['seeding', 'queued', 'running'].includes(job.status as string) && (
                     <Button size="sm" variant="outline" onClick={() => pauseJob(id)} title="Pausar">
                       <Pause className="w-3.5 h-3.5" />
                     </Button>
                   )}
-                  {job.status === 'paused' && mode === 'auto' && (
+                  {job.status === 'paused' && (
                     <Button size="sm" variant="outline" onClick={() => resumeJob(id)} title="Reanudar">
                       <Play className="w-3.5 h-3.5" />
                     </Button>
@@ -113,13 +86,11 @@ function JobList({ jobs, onMutate }: { jobs: Record<string, unknown>[]; onMutate
                 </div>
               </div>
 
-              {/* Progress bar — auto mode */}
-              {mode === 'auto' && (job.status === 'running' || job.status === 'paused') && (
+              {(job.status === 'running' || job.status === 'paused') && (
                 <Progress value={pct} className="h-1.5 mb-3" />
               )}
 
-              {/* Counters */}
-              <div className="grid grid-cols-5 gap-2 mb-3">
+              <div className="grid grid-cols-5 gap-2">
                 {(['valid', 'invalid', 'risky', 'catch_all', 'unknown'] as const).map(k => (
                   <div key={k} className="flex flex-col items-center bg-muted/50 rounded-md py-2 px-1">
                     {statusIcon[k]}
@@ -128,18 +99,6 @@ function JobList({ jobs, onMutate }: { jobs: Record<string, unknown>[]; onMutate
                   </div>
                 ))}
               </div>
-
-              {/* Local terminal */}
-              {mode === 'local' && isActive && (
-                <div className="border-t pt-3 mt-1">
-                  <LocalVerification
-                    jobId={id}
-                    jobName={job.name as string || 'Verification Job'}
-                    totalEmails={total}
-                    onComplete={onMutate}
-                  />
-                </div>
-              )}
             </CardContent>
           </Card>
         )
@@ -187,7 +146,6 @@ export default function VerificationPage() {
         </div>
       </div>
 
-      {/* New Job */}
       <Card className="mb-6">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium">Iniciar verificación</CardTitle>
@@ -214,13 +172,10 @@ export default function VerificationPage() {
               Iniciar verificación
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Cada email verificado consume 1 crédito.
-          </p>
+          <p className="text-xs text-muted-foreground mt-2">Cada email verificado consume 1 crédito.</p>
         </CardContent>
       </Card>
 
-      {/* Jobs */}
       <div>
         <h2 className="text-sm font-medium text-foreground mb-3">Trabajos de verificación</h2>
         {jobsLoading ? (
