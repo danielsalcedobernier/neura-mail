@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getSession } from '@/lib/auth'
-import { ok, unauthorized, badRequest } from '@/lib/api'
+import { ok, unauthorized, error } from '@/lib/api'
 import { neon } from '@neondatabase/serverless'
 
 const sql = neon(process.env.DATABASE_URL!)
@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   const limit  = Math.min(Number(req.nextUrl.searchParams.get('limit')  ?? 50000), 50000)
   const offset = Number(req.nextUrl.searchParams.get('offset') ?? 0)
 
-  if (!jobId) return badRequest('job_id required')
+  if (!jobId) return error('job_id required', 400)
 
   // Verify job belongs to user
   const jobs = await sql`

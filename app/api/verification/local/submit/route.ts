@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getSession } from '@/lib/auth'
-import { ok, unauthorized, badRequest, serverError } from '@/lib/api'
+import { ok, unauthorized, error, serverError } from '@/lib/api'
 import { neon } from '@neondatabase/serverless'
 
 const sql = neon(process.env.DATABASE_URL!)
@@ -22,10 +22,10 @@ export async function POST(req: NextRequest) {
     const { job_id, emails } = body as { job_id: string; emails: { id: string; email: string }[] }
 
     if (!job_id || !Array.isArray(emails) || emails.length === 0) {
-      return badRequest('job_id and emails[] required')
+      return error('job_id and emails[] required', 400)
     }
     if (emails.length > 50000) {
-      return badRequest('Max 50,000 emails per chunk')
+      return error('Max 50,000 emails per chunk', 400)
     }
 
     // Verify job belongs to user

@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getSession } from '@/lib/auth'
-import { ok, unauthorized, badRequest, serverError } from '@/lib/api'
+import { ok, unauthorized, error, serverError } from '@/lib/api'
 import { neon } from '@neondatabase/serverless'
 
 const sql = neon(process.env.DATABASE_URL!)
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!job_id || !Array.isArray(items) || items.length === 0) {
-      return badRequest('job_id and items[] required')
+      return error('job_id and items[] required', 400)
     }
 
     // Verify job belongs to user
