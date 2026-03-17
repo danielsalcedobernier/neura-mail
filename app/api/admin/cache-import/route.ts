@@ -38,7 +38,16 @@ export async function POST(req: NextRequest) {
 
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
 
-    const payload = JSON.stringify(rows.map(r => ({
+    // Deduplicate by email within the batch — Postgres cannot upsert the same row twice
+    const seen    = new Set<string>()
+    const dedupedRows = rows.filter(r => {
+      const key = (r.email ?? '').toLowerCase().trim()
+      if (!key || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+
+    const payload = JSON.stringify(dedupedRows.map(r => ({
       email:               (r.email ?? '').toLowerCase().trim(),
       verification_status: r.verification_status ?? 'unknown',
       verification_score:  r.verification_score  ?? 0,
@@ -91,7 +100,7 @@ export async function POST(req: NextRequest) {
         hit_count           = global_email_cache.hit_count + 1
     `
 
-    return ok({ inserted: rows.length })
+    return ok({ inserted: dedupedRows.length, duplicates_skipped: rows.length - dedupedRows.length })
   } catch (e: unknown) {
     return serverError((e as Error).message)
   }
