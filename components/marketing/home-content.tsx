@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import {
@@ -23,6 +24,9 @@ const STATS_VALUES = ['99.8%', '< 200ms', '50M+', '99.9%']
 export default function HomeContent({ lang, packs = [] }: { lang: Lang; packs?: CreditPack[] }) {
   const tr = t[lang].home
   const base = lang === 'en' ? '/en' : ''
+  // Defer rendering of dynamic data-driven sections to avoid SSR/client hydration mismatch
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
 
   return (
     <>
@@ -138,14 +142,14 @@ export default function HomeContent({ lang, packs = [] }: { lang: Lang; packs?: 
       </section>
 
       {/* PRICING TEASER */}
-      <section className="py-24 px-6 border-t border-white/10">
-        <div className="max-w-5xl mx-auto">
+      <section className="py-24 px-6 border-t border-white/10" suppressHydrationWarning>
+        <div className="max-w-5xl mx-auto" suppressHydrationWarning>
           <div className="text-center mb-14 flex flex-col gap-3">
             <p className="text-xs uppercase tracking-widest text-primary font-semibold">{lang === 'es' ? 'Pago por uso' : 'Pay as you go'}</p>
             <h2 className="text-4xl font-bold text-white text-balance">{tr.pricingTitle}</h2>
             <p className="text-white/40 max-w-md mx-auto text-pretty leading-relaxed">{tr.pricingSub}</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {mounted && <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {packs.map((pack, i) => {
               const credits = Number(pack.credits)
               const bonus = Number(pack.bonus_credits)
@@ -199,7 +203,7 @@ export default function HomeContent({ lang, packs = [] }: { lang: Lang; packs?: 
                 </div>
               )
             })}
-          </div>
+          </div>}
           <p className="text-center text-sm text-white/30 mt-8">
             {tr.pricingNote}{' '}
             <Link href={`${base}/pricing`} className="text-primary hover:underline">{tr.pricingNoteLink}</Link>
