@@ -151,9 +151,8 @@ export default function HomeContent({ lang, packs = [] }: { lang: Lang; packs?: 
               const totalCredits = credits + bonus
               const perK = totalCredits > 0 ? ((price / totalCredits) * 1000).toFixed(2) : '?'
               const isPopular = i === 1
-              const creditsLabel = lang === 'es'
-                ? credits.toLocaleString('es-CL')
-                : credits.toLocaleString('en-US')
+              // Use a fixed locale to avoid SSR/client hydration mismatch
+              const creditsLabel = credits.toLocaleString('en-US').replace(/,/g, lang === 'es' ? '.' : ',')
 
               return (
                 <div
@@ -173,7 +172,7 @@ export default function HomeContent({ lang, packs = [] }: { lang: Lang; packs?: 
                     <p className="text-sm text-white/40">{creditsLabel} {lang === 'es' ? 'créditos' : 'credits'}</p>
                     {bonus > 0 && (
                       <p className="text-xs text-green-400 flex items-center gap-1">
-                        <Zap className="w-3 h-3" />+{bonus.toLocaleString()} {lang === 'es' ? 'créditos bonus' : 'bonus credits'}
+                        <Zap className="w-3 h-3" />+{bonus.toLocaleString('en-US')} {lang === 'es' ? 'créditos bonus' : 'bonus credits'}
                       </p>
                     )}
                     <p className="text-xs text-white/20">${perK} {lang === 'es' ? 'por 1.000' : 'per 1,000'}</p>
