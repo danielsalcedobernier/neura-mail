@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import {
   ArrowRight, CheckCircle2, Shield, BarChart3,
-  Send, Key, TrendingUp, Clock, Globe,
+  Send, Key, TrendingUp, Clock, Globe, Zap,
 } from 'lucide-react'
 import type { Lang } from '@/i18n/translations'
 import { t } from '@/i18n/translations'
