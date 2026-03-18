@@ -28,7 +28,10 @@ interface BatchRecord {
   saved_at: string | null
 }
 
-const fetcher = (url: string) => fetch(url).then(r => r.json()).then(r => r.data ?? r)
+const fetcher = (url: string) =>
+  fetch(url)
+    .then(r => r.json())
+    .then(r => (Array.isArray(r.data) ? r.data : Array.isArray(r) ? r : []))
 
 const STATUS_BADGE: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
   submitted: { label: 'Enviado',    variant: 'secondary' },
