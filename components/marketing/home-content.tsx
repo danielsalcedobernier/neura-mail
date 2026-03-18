@@ -10,8 +10,8 @@ import {
 import type { Lang } from '@/i18n/translations'
 import { t } from '@/i18n/translations'
 
-// Load pricing section client-only to avoid SSR/hydration mismatch from dynamic pack data
-const PricingSection = dynamic(() => import('./pricing-section'), { ssr: false })
+// Pricing is loaded client-only — never rendered on the server — to prevent hydration mismatch
+const PricingSection = dynamic(() => import('./pricing-section'), { ssr: false, loading: () => null })
 
 interface CreditPack {
   id: string
