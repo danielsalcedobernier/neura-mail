@@ -24,9 +24,6 @@ const STATS_VALUES = ['99.8%', '< 200ms', '50M+', '99.9%']
 export default function HomeContent({ lang, packs = [] }: { lang: Lang; packs?: CreditPack[] }) {
   const tr = t[lang].home
   const base = lang === 'en' ? '/en' : ''
-  // Defer rendering of dynamic data-driven sections to avoid SSR/client hydration mismatch
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => { setMounted(true) }, [])
 
   return (
     <>
@@ -149,7 +146,7 @@ export default function HomeContent({ lang, packs = [] }: { lang: Lang; packs?: 
             <h2 className="text-4xl font-bold text-white text-balance">{tr.pricingTitle}</h2>
             <p className="text-white/40 max-w-md mx-auto text-pretty leading-relaxed">{tr.pricingSub}</p>
           </div>
-          {mounted && <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {packs.map((pack, i) => {
               const credits = Number(pack.credits)
               const bonus = Number(pack.bonus_credits)
@@ -203,7 +200,7 @@ export default function HomeContent({ lang, packs = [] }: { lang: Lang; packs?: 
                 </div>
               )
             })}
-          </div>}
+          </div>
           <p className="text-center text-sm text-white/30 mt-8">
             {tr.pricingNote}{' '}
             <Link href={`${base}/pricing`} className="text-primary hover:underline">{tr.pricingNoteLink}</Link>
