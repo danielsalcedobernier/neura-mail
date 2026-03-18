@@ -10,8 +10,8 @@ import {
 import type { Lang } from '@/i18n/translations'
 import { t } from '@/i18n/translations'
 
-// Pricing is loaded client-only — never rendered on the server — to prevent hydration mismatch
-const PricingSection = dynamic(() => import('./pricing-section'), { ssr: false, loading: () => null })
+// Pricing is loaded client-only to prevent SSR hydration mismatch
+const PricingSection = dynamic(() => import('./pricing-section'), { ssr: false })
 
 interface CreditPack {
   id: string
@@ -22,7 +22,7 @@ interface CreditPack {
 }
 
 const ICONS = [Shield, Send, Zap, Key, BarChart3, Globe]
-const STATS_VALUES = ['99.8%', '< 200ms', '50M+', '99.9%']
+const STATS_VALUES: string[] = ['99.8%', '< 200ms', '50M+', '99.9%']
 
 export default function HomeContent({ lang, packs = [] }: { lang: Lang; packs?: CreditPack[] }) {
   const tr = t[lang].home
