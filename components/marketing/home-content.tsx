@@ -22,7 +22,7 @@ interface CreditPack {
 }
 
 const ICONS = [Shield, Send, Zap, Key, BarChart3, Globe]
-const STATS_VALUES = ['99.8%', '< 200ms', '50M+', '99.9%']
+const STATS_VALUES: string[] = ['99.8%', '< 200ms', '50M+', '99.9%']
 
 export default function HomeContent({ lang, packs = [] }: { lang: Lang; packs?: CreditPack[] }) {
   const tr = t[lang].home
