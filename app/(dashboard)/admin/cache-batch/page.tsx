@@ -70,20 +70,45 @@ export default function CacheBatchPage() {
       const sheet    = workbook.Sheets[workbook.SheetNames[0]]
       const rows     = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet)
 
-      // Extract emails — detect the column automatically
-      const emailKey = Object.keys(rows[0] ?? {}).find(k =>
-        k.toLowerCase().includes('email') ||
-        k.toLowerCase().includes('correo') ||
-        k.toLowerCase() === 'e-mail'
-      )
+      // Detect email column by name first, then fall back to scanning cell values
+      const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      const NAME_PATTERNS = [
+        'email', 'e-mail', 'e_mail', 'mail', 'correo', 'correo_electronico',
+        'correo electronico', 'correo electrónico', 'emailaddress', 'email_address',
+        'email address', 'contact', 'contacto',
+      ]
+
+      const keys = Object.keys(rows[0] ?? {})
+
+      // 1. Exact name match (case-insensitive)
+      let emailKey = keys.find(k => NAME_PATTERNS.includes(k.toLowerCase()))
+
+      // 2. Partial name match
+      if (!emailKey) {
+        emailKey = keys.find(k =>
+          NAME_PATTERNS.some(p => k.toLowerCase().includes(p))
+        )
+      }
+
+      // 3. Scan cell values — pick the column with the most email-looking values
+      if (!emailKey) {
+        let bestKey = ''
+        let bestCount = 0
+        for (const k of keys) {
+          const count = rows.filter(r => EMAIL_REGEX.test(String(r[k] ?? '').trim())).length
+          if (count > bestCount) { bestCount = count; bestKey = k }
+        }
+        if (bestCount > 0) emailKey = bestKey
+      }
+
       if (!emailKey) {
         toast.error('No se encontró columna de email en el archivo')
         return
       }
 
       const emails = rows
-        .map(r => String(r[emailKey] ?? '').toLowerCase().trim())
-        .filter(e => e.includes('@'))
+        .map(r => String(r[emailKey!] ?? '').toLowerCase().trim())
+        .filter(e => EMAIL_REGEX.test(e))
 
       if (emails.length === 0) {
         toast.error('El archivo no contiene emails válidos')
