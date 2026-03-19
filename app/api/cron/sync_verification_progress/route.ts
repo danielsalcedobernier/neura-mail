@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   try {
     // Find active verification jobs
     const activeJobs = await sql`
-      SELECT id FROM verification_jobs WHERE status IN ('running', 'queued', 'seeding')
+      SELECT id FROM verification_jobs WHERE status IN ('running', 'queued', 'seeding', 'cache_sweeping')
     `
 
     if (activeJobs.length === 0) {
