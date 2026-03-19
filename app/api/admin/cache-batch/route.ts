@@ -15,7 +15,7 @@ export async function GET(_req: NextRequest) {
   try {
     const rows = await sql`
       SELECT id, created_at, file_name, email_count, mailsso_batch_id,
-             status, result_count, error_message, fetched_at, saved_at
+             status, result_count, result_summary, error_message, fetched_at, saved_at
       FROM admin_cache_batches
       ORDER BY created_at DESC
       LIMIT 100

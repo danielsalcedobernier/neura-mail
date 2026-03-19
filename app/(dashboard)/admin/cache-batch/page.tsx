@@ -5,7 +5,8 @@ import useSWR from 'swr'
 import * as XLSX from 'xlsx'
 import {
   Upload, FileSpreadsheet, Loader2, CheckCircle2,
-  AlertCircle, RefreshCw, Clock, Database,
+  AlertCircle, RefreshCw, Clock, Database, ChevronDown, ChevronUp,
+  ShieldCheck, ShieldX, ShieldAlert, ShieldQuestion, HelpCircle, Trash2, UserX,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -15,6 +16,17 @@ import { toast } from 'sonner'
 
 const CHUNK_SIZE = 25_000
 
+interface ResultSummary {
+  total:      number
+  valid:      number
+  invalid:    number
+  risky:      number
+  catch_all:  number
+  unknown:    number
+  disposable: number
+  role_based: number
+}
+
 interface BatchRecord {
   id: string
   created_at: string
@@ -23,6 +35,7 @@ interface BatchRecord {
   mailsso_batch_id: string | null
   status: 'submitted' | 'ready' | 'saved' | 'error'
   result_count: number | null
+  result_summary: ResultSummary | null
   error_message: string | null
   fetched_at: string | null
   saved_at: string | null
@@ -54,6 +67,7 @@ export default function CacheBatchPage() {
   const [dragging, setDragging] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [polling, setPolling]   = useState<Record<string, boolean>>({})
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
   const { data: batches, mutate } = useSWR<BatchRecord[]>(
     '/api/admin/cache-batch',
@@ -251,55 +265,111 @@ export default function CacheBatchPage() {
           ) : (
             <div className="divide-y divide-border">
               {batches.map(b => {
-                const isPollable = b.status !== 'saved'
-                const isPolling  = polling[b.id]
-                const info = STATUS_BADGE[b.status] ?? { label: b.status, variant: 'outline' as const }
+                const isPollable  = b.status !== 'saved'
+                const isPolling   = polling[b.id]
+                const isExpanded  = expanded[b.id]
+                const info        = STATUS_BADGE[b.status] ?? { label: b.status, variant: 'outline' as const }
+                const s           = b.result_summary
+                const hasSummary  = b.status === 'saved' && s != null
+
+                const SUMMARY_ITEMS = s ? [
+                  { label: 'Válidos',      value: s.valid,      icon: ShieldCheck,    color: 'text-green-600' },
+                  { label: 'Inválidos',    value: s.invalid,    icon: ShieldX,        color: 'text-red-500' },
+                  { label: 'Riesgosos',    value: s.risky,      icon: ShieldAlert,    color: 'text-yellow-600' },
+                  { label: 'Catch-all',    value: s.catch_all,  icon: ShieldQuestion, color: 'text-blue-500' },
+                  { label: 'Desconocido',  value: s.unknown,    icon: HelpCircle,     color: 'text-muted-foreground' },
+                  { label: 'Desechables',  value: s.disposable, icon: Trash2,         color: 'text-orange-500' },
+                  { label: 'Rol/genérico', value: s.role_based, icon: UserX,          color: 'text-purple-500' },
+                ] : []
+
                 return (
-                  <div key={b.id} className="flex items-center gap-4 px-4 py-3">
-                    {/* Icon */}
-                    <div className="shrink-0">
-                      {b.status === 'saved'     && <CheckCircle2 className="w-5 h-5 text-green-600" />}
-                      {b.status === 'error'     && <AlertCircle  className="w-5 h-5 text-destructive" />}
-                      {b.status === 'submitted' && <Clock        className="w-5 h-5 text-muted-foreground" />}
-                      {b.status === 'ready'     && <CheckCircle2 className="w-5 h-5 text-primary" />}
-                    </div>
+                  <div key={b.id} className="border-b border-border last:border-b-0">
+                    {/* Main row */}
+                    <div className="flex items-center gap-4 px-4 py-3">
+                      {/* Icon */}
+                      <div className="shrink-0">
+                        {b.status === 'saved'     && <CheckCircle2 className="w-5 h-5 text-green-600" />}
+                        {b.status === 'error'     && <AlertCircle  className="w-5 h-5 text-destructive" />}
+                        {b.status === 'submitted' && <Clock        className="w-5 h-5 text-muted-foreground" />}
+                        {b.status === 'ready'     && <CheckCircle2 className="w-5 h-5 text-primary" />}
+                      </div>
 
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{b.file_name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {fmtDate(b.created_at)} · {fmt(b.email_count)} emails
-                        {b.mailsso_batch_id && (
-                          <span className="ml-2 font-mono opacity-60">{b.mailsso_batch_id}</span>
-                        )}
-                      </p>
-                      {b.saved_at && (
-                        <p className="text-xs text-green-600">
-                          {fmt(b.result_count)} resultados guardados · {fmtDate(b.saved_at)}
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{b.file_name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {fmtDate(b.created_at)} · {fmt(b.email_count)} emails
+                          {b.mailsso_batch_id && (
+                            <span className="ml-2 font-mono opacity-60">{b.mailsso_batch_id}</span>
+                          )}
                         </p>
-                      )}
-                      {b.error_message && (
-                        <p className="text-xs text-destructive font-mono mt-0.5">{b.error_message}</p>
-                      )}
+                        {b.saved_at && (
+                          <p className="text-xs text-green-600">
+                            {fmt(b.result_count)} resultados guardados · {fmtDate(b.saved_at)}
+                          </p>
+                        )}
+                        {b.error_message && (
+                          <p className="text-xs text-destructive font-mono mt-0.5">{b.error_message}</p>
+                        )}
+                      </div>
+
+                      {/* Status + actions */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Badge variant={info.variant} className="text-xs">{info.label}</Badge>
+                        {isPollable && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={isPolling}
+                            onClick={() => consultBatch(b.id)}
+                          >
+                            {isPolling
+                              ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> Consultando...</>
+                              : <><RefreshCw className="w-3.5 h-3.5 mr-1" /> Consultar respuesta</>
+                            }
+                          </Button>
+                        )}
+                        {hasSummary && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setExpanded(e => ({ ...e, [b.id]: !e[b.id] }))}
+                          >
+                            {isExpanded
+                              ? <ChevronUp className="w-4 h-4" />
+                              : <ChevronDown className="w-4 h-4" />}
+                          </Button>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Status + action */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Badge variant={info.variant} className="text-xs">{info.label}</Badge>
-                      {isPollable && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={isPolling}
-                          onClick={() => consultBatch(b.id)}
-                        >
-                          {isPolling
-                            ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> Consultando...</>
-                            : <><RefreshCw className="w-3.5 h-3.5 mr-1" /> Consultar respuesta</>
-                          }
-                        </Button>
-                      )}
-                    </div>
+                    {/* Expandable summary */}
+                    {hasSummary && isExpanded && s && (
+                      <div className="px-4 pb-4 bg-muted/30">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 pt-2">
+                          Detalle de validación · {fmt(s.total)} resultados guardados en caché
+                        </p>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          {SUMMARY_ITEMS.map(item => (
+                            <div
+                              key={item.label}
+                              className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2"
+                            >
+                              <item.icon className={cn('w-4 h-4 shrink-0', item.color)} />
+                              <div className="min-w-0">
+                                <p className="text-xs text-muted-foreground leading-none">{item.label}</p>
+                                <p className="text-sm font-semibold text-foreground tabular-nums">
+                                  {fmt(item.value)}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {s.total > 0 ? ((item.value / s.total) * 100).toFixed(1) : '0'}%
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })}
