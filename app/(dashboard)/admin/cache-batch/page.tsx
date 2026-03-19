@@ -67,6 +67,7 @@ export default function CacheBatchPage() {
   const [dragging, setDragging] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [polling, setPolling]   = useState<Record<string, boolean>>({})
+  const [deleting, setDeleting] = useState<Record<string, boolean>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
   const { data: batches, mutate } = useSWR<BatchRecord[]>(
@@ -170,6 +171,23 @@ export default function CacheBatchPage() {
     e.target.value = ''
   }
 
+  // ── Delete batch ──────────────────────────────────────────────────────────
+  const deleteBatch = useCallback(async (id: string, fileName: string) => {
+    if (!confirm(`¿Eliminar el batch "${fileName}"? Esto no afecta el caché ya guardado.`)) return
+    setDeleting(d => ({ ...d, [id]: true }))
+    try {
+      const res = await fetch(`/api/admin/cache-batch/${id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`)
+      toast.success('Batch eliminado — puedes volver a enviarlo')
+      mutate()
+    } catch (e: unknown) {
+      toast.error((e as Error).message)
+    } finally {
+      setDeleting(d => ({ ...d, [id]: false }))
+    }
+  }, [mutate])
+
   // ── Poll batch ─────────────────────────────────────────────────────────────
   const consultBatch = useCallback(async (id: string) => {
     setPolling(p => ({ ...p, [id]: true }))
@@ -267,6 +285,7 @@ export default function CacheBatchPage() {
               {batches.map(b => {
                 const isPollable  = b.status !== 'saved'
                 const isPolling   = polling[b.id]
+                const isDeleting  = deleting[b.id]
                 const isExpanded  = expanded[b.id]
                 const info        = STATUS_BADGE[b.status] ?? { label: b.status, variant: 'outline' as const }
                 const s           = b.result_summary
@@ -340,6 +359,18 @@ export default function CacheBatchPage() {
                               : <ChevronDown className="w-4 h-4" />}
                           </Button>
                         )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={isDeleting}
+                          onClick={() => deleteBatch(b.id, b.file_name)}
+                          title="Eliminar batch"
+                        >
+                          {isDeleting
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+                            : <Trash2 className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
+                          }
+                        </Button>
                       </div>
                     </div>
 
