@@ -507,28 +507,22 @@ async function finalizeJob(job: { id: string; user_id: string; credits_reserved:
     `
   }
 
-  // Update list counts — group mails.so statuses correctly
+  // Update list counts using the already-computed stats from verification_jobs — no subquery scan needed
   const listRow = await sql`SELECT list_id FROM verification_jobs WHERE id = ${job.id}`
   const listId = listRow[0]?.list_id
   if (listId) {
-    const counts = await sql`
-      SELECT
-        COUNT(*) FILTER (WHERE verification_status IN ('valid', 'catch_all'))             AS valid_count,
-        COUNT(*) FILTER (WHERE verification_status IN ('invalid', 'risky', 'unknown'))    AS invalid_count,
-        COUNT(*) FILTER (WHERE verification_status IS NULL OR verification_status = 'unverified') AS unverified_count
-      FROM email_list_contacts
-      WHERE list_id = ${listId}
-    `
-    const { valid_count, invalid_count, unverified_count } = counts[0]
     await sql`
       UPDATE email_lists SET
-        valid_count      = ${Number(valid_count)},
-        invalid_count    = ${Number(invalid_count)},
-        unverified_count = ${Number(unverified_count)},
+        valid_count      = (SELECT COALESCE(SUM(valid_count),0)      FROM verification_jobs WHERE list_id = ${listId} AND status = 'completed'),
+        invalid_count    = (SELECT COALESCE(SUM(invalid_count),0)    FROM verification_jobs WHERE list_id = ${listId} AND status = 'completed'),
+        unverified_count = GREATEST(0, total_count - (
+                             SELECT COALESCE(SUM(valid_count + invalid_count + risky_count + catch_all_count + unknown_count), 0)
+                             FROM verification_jobs WHERE list_id = ${listId} AND status = 'completed'
+                           )),
         updated_at       = NOW()
       WHERE id = ${listId}
     `
-    console.log(`[cron/verify] Updated list=${listId} valid=${valid_count} invalid=${invalid_count} unverified=${unverified_count}`)
+    console.log(`[cron/verify] Updated list=${listId} from verification_jobs stats`)
   }
 
   return { jobCompleted: job.id, ...s }
