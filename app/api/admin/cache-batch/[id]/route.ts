@@ -50,19 +50,32 @@ export async function POST(
       return ok({ ready: false })
     }
 
+    // Compute breakdown summary
+    const summary = {
+      total:       results.length,
+      valid:       results.filter(r => r.status === 'valid').length,
+      invalid:     results.filter(r => r.status === 'invalid').length,
+      risky:       results.filter(r => r.status === 'risky').length,
+      catch_all:   results.filter(r => r.status === 'catch_all').length,
+      unknown:     results.filter(r => r.status === 'unknown').length,
+      disposable:  results.filter(r => r.is_disposable).length,
+      role_based:  results.filter(r => r.is_role_based).length,
+    }
+
     // Save to cache
     await storeBatchInCache(results, session.id)
 
     await sql`
       UPDATE admin_cache_batches
-      SET status = 'saved',
-          result_count = ${results.length},
-          fetched_at   = NOW(),
-          saved_at     = NOW()
+      SET status         = 'saved',
+          result_count   = ${results.length},
+          result_summary = ${JSON.stringify(summary)}::jsonb,
+          fetched_at     = NOW(),
+          saved_at       = NOW()
       WHERE id = ${id}
     `
 
-    return ok({ ready: true, result_count: results.length })
+    return ok({ ready: true, result_count: results.length, summary })
   } catch (e: unknown) {
     // Persist error on the batch record
     await sql`
