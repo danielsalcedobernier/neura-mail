@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import {
   Upload, Plus, Trash2, FileText, Loader2, CheckCircle2,
-  ClipboardPaste, FolderOpen, X, Terminal,
+  ClipboardPaste, FolderOpen, X, Terminal, Download,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -16,6 +16,7 @@ import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 
 // ─── Column mapping types ────────────────────────────────────────────────────
 interface ColumnMapping { email: number; first_name: number; last_name: number }
@@ -369,6 +370,76 @@ export default function ListsPage() {
     else toast.error('Error al eliminar')
   }
 
+  // ── Download ───────────────────────────────────────────────────────────────
+  const [downloadOpen, setDownloadOpen]     = useState(false)
+  const [downloadList, setDownloadList]     = useState<{ id: string; name: string } | null>(null)
+  const [downloadFilter, setDownloadFilter] = useState<'all' | 'valid'>('valid')
+  const [downloading, setDownloading]       = useState(false)
+  const [downloadPct, setDownloadPct]       = useState(0)
+
+  const CHUNK_SIZE = 1_000_000
+
+  const handleDownload = async () => {
+    if (!downloadList) return
+    setDownloading(true)
+    setDownloadPct(0)
+    try {
+      const url = `/api/lists/${downloadList.id}/export?filter=${downloadFilter}`
+      const response = await fetch(url)
+      if (!response.ok || !response.body) throw new Error('Error al descargar')
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      const rows: string[][] = []
+      let fileIndex = 1
+      let totalRows = 0
+      const header = 'email,first_name,last_name,verification_status'
+
+      const flushFile = (chunk: string[][]) => {
+        const csv = [header, ...chunk.map(r => r.map(v => `"${(v ?? '').replace(/"/g, '""')}"`).join(','))].join('\n')
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        const suffix = fileIndex > 1 ? `_parte${fileIndex}` : ''
+        a.download = `${downloadList!.name}${suffix}_${downloadFilter}.csv`
+        a.click()
+        URL.revokeObjectURL(a.href)
+        fileIndex++
+      }
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.trim()) continue
+          try {
+            const obj = JSON.parse(line)
+            rows.push([obj.email, obj.first_name ?? '', obj.last_name ?? '', obj.verification_status ?? ''])
+            totalRows++
+            if (rows.length >= CHUNK_SIZE) {
+              flushFile(rows.splice(0, CHUNK_SIZE))
+            }
+          } catch { /* skip malformed */ }
+        }
+      }
+      // flush remaining
+      if (rows.length > 0) flushFile(rows)
+
+      setDownloadPct(100)
+      toast.success(`${totalRows.toLocaleString('es-CL')} emails descargados en ${fileIndex - 1} archivo${fileIndex > 2 ? 's' : ''}`)
+      setDownloadOpen(false)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al descargar')
+    } finally {
+      setDownloading(false)
+      setDownloadPct(0)
+    }
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -435,6 +506,19 @@ export default function ListsPage() {
                         <a href={`/dashboard/verification?list=${list.id}`}>
                           <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Verificar
                         </a>
+                      </Button>
+                    )}
+                    {Number(list.total_count) > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setDownloadList({ id: list.id as string, name: list.name as string })
+                          setDownloadFilter('valid')
+                          setDownloadOpen(true)
+                        }}
+                      >
+                        <Download className="w-3.5 h-3.5 mr-1" /> Descargar
                       </Button>
                     )}
                     <Button size="sm" variant="ghost" onClick={() => handleDelete(list.id as string)}>
@@ -696,6 +780,55 @@ export default function ListsPage() {
           </Tabs>
         </DialogContent>
       </Dialog>
+
+      {/* ── Download dialog ── */}
+      <Dialog open={downloadOpen} onOpenChange={v => { if (!downloading) setDownloadOpen(v) }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Descargar lista</DialogTitle>
+            <DialogDescription>
+              Elige qué contactos descargar de &quot;{downloadList?.name}&quot;. Si supera 1 millón de filas se generarán varios archivos CSV.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-5 pt-2">
+            <RadioGroup
+              value={downloadFilter}
+              onValueChange={v => setDownloadFilter(v as 'all' | 'valid')}
+              className="flex flex-col gap-3"
+            >
+              <div className="flex items-center gap-3 rounded-md border border-border px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors">
+                <RadioGroupItem value="valid" id="dl-valid" />
+                <Label htmlFor="dl-valid" className="cursor-pointer flex-1">
+                  <span className="font-medium text-sm">Solo válidos</span>
+                  <p className="text-xs text-muted-foreground">Solo los emails con verificación válida</p>
+                </Label>
+              </div>
+              <div className="flex items-center gap-3 rounded-md border border-border px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors">
+                <RadioGroupItem value="all" id="dl-all" />
+                <Label htmlFor="dl-all" className="cursor-pointer flex-1">
+                  <span className="font-medium text-sm">Todos</span>
+                  <p className="text-xs text-muted-foreground">Todos los emails, sin importar su estado</p>
+                </Label>
+              </div>
+            </RadioGroup>
+
+            {downloading && (
+              <div className="flex flex-col gap-1.5">
+                <p className="text-xs text-muted-foreground">Descargando y generando archivo(s)...</p>
+                <Progress value={downloadPct} className="h-1.5" />
+              </div>
+            )}
+
+            <Button onClick={handleDownload} disabled={downloading} className="w-full">
+              {downloading
+                ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Descargando...</>
+                : <><Download className="w-4 h-4 mr-1.5" /> Descargar CSV</>
+              }
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
     </div>
   )
 }
