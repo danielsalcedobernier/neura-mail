@@ -189,8 +189,18 @@ export async function storeBatchInCache(
   verifiedByUserId?: string
 ): Promise<void> {
   if (results.length === 0) return
+
+  // Deduplicate by email — keep the last occurrence (highest score wins ties)
+  const seen = new Map<string, VerificationResult>()
+  for (const r of results) {
+    const key = r.email.toLowerCase()
+    const existing = seen.get(key)
+    if (!existing || r.score > existing.score) seen.set(key, r)
+  }
+  const deduped = Array.from(seen.values())
+
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-  const payload = JSON.stringify(results.map(r => ({
+  const payload = JSON.stringify(deduped.map(r => ({
     email: r.email.toLowerCase(),
     verification_status: r.status,
     verification_score: r.score,
