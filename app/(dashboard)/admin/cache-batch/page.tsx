@@ -14,7 +14,8 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
-const CHUNK_SIZE = 25_000
+const CHUNK_SIZE        = 25_000  // max emails per mails.so batch
+const LOOKUP_CHUNK_SIZE = 50_000  // max emails per cache-lookup call
 
 interface ResultSummary {
   total:      number
@@ -66,6 +67,7 @@ export default function CacheBatchPage() {
   const inputRef            = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [submitStatus, setSubmitStatus] = useState('')
   const [polling, setPolling]   = useState<Record<string, boolean>>({})
   const [deleting, setDeleting] = useState<Record<string, boolean>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
@@ -79,6 +81,7 @@ export default function CacheBatchPage() {
   // ── Upload + submit ────────────────────────────────────────────────────────
   const submitFile = useCallback(async (file: File) => {
     setSubmitting(true)
+    setSubmitStatus('Leyendo archivo...')
     try {
       const buffer   = await file.arrayBuffer()
       const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array', dense: true })
@@ -121,21 +124,58 @@ export default function CacheBatchPage() {
         return
       }
 
-      const emails = rows
+      const allEmails = rows
         .map(r => String(r[emailKey!] ?? '').toLowerCase().trim())
         .filter(e => EMAIL_REGEX.test(e))
 
-      if (emails.length === 0) {
+      if (allEmails.length === 0) {
         toast.error('El archivo no contiene emails válidos')
         return
       }
 
-      // Send in chunks of 25k — each chunk becomes a separate mails.so batch
-      const chunks = Math.ceil(emails.length / CHUNK_SIZE)
-      let sent = 0
+      // ── Step 1: Consult cache in chunks ───────────────────────────────────
+      setSubmitStatus(`Consultando caché para ${allEmails.length.toLocaleString('es-CL')} emails...`)
+      const cachedSet = new Set<string>()
+      const lookupChunks = Math.ceil(allEmails.length / LOOKUP_CHUNK_SIZE)
+
+      for (let i = 0; i < lookupChunks; i++) {
+        const chunk = allEmails.slice(i * LOOKUP_CHUNK_SIZE, (i + 1) * LOOKUP_CHUNK_SIZE)
+        if (lookupChunks > 1) {
+          setSubmitStatus(`Consultando caché... bloque ${i + 1}/${lookupChunks}`)
+        }
+        const res = await fetch('/api/admin/cache-lookup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emails: chunk }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error ?? `Error en cache-lookup ${res.status}`)
+        for (const e of (data.data?.found ?? data.found ?? [])) cachedSet.add(e)
+      }
+
+      // ── Step 2: Filter out already-cached emails ──────────────────────────
+      const emailsToSend = allEmails.filter(e => !cachedSet.has(e))
+      const cachedCount  = allEmails.length - emailsToSend.length
+
+      if (emailsToSend.length === 0) {
+        toast.success(
+          `Todos los ${allEmails.length.toLocaleString('es-CL')} emails ya están en caché. No se enviará nada a mails.so.`
+        )
+        return
+      }
+
+      if (cachedCount > 0) {
+        toast.info(
+          `${cachedCount.toLocaleString('es-CL')} emails resueltos desde caché · ${emailsToSend.length.toLocaleString('es-CL')} se enviarán a mails.so`
+        )
+      }
+
+      // ── Step 3: Send only uncached emails to mails.so in 25k chunks ───────
+      const chunks = Math.ceil(emailsToSend.length / CHUNK_SIZE)
       for (let i = 0; i < chunks; i++) {
-        const chunk = emails.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)
+        const chunk = emailsToSend.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)
         const chunkName = chunks > 1 ? `${file.name} (parte ${i + 1}/${chunks})` : file.name
+        setSubmitStatus(`Enviando a mails.so... bloque ${i + 1}/${chunks} (${chunk.length.toLocaleString('es-CL')} emails)`)
 
         const res = await fetch('/api/admin/cache-batch', {
           method: 'POST',
@@ -144,15 +184,18 @@ export default function CacheBatchPage() {
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`)
-        sent += chunk.length
       }
 
-      toast.success(`${emails.length.toLocaleString('es-CL')} emails enviados a mails.so en ${chunks} batch(es)`)
+      toast.success(
+        `${emailsToSend.length.toLocaleString('es-CL')} emails enviados a mails.so en ${chunks} batch(es)` +
+        (cachedCount > 0 ? ` · ${cachedCount.toLocaleString('es-CL')} ya estaban en caché` : '')
+      )
       mutate()
     } catch (e: unknown) {
       toast.error((e as Error).message)
     } finally {
       setSubmitting(false)
+      setSubmitStatus('')
     }
   }, [mutate])
 
@@ -246,10 +289,14 @@ export default function CacheBatchPage() {
               <Upload className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
             )}
             <p className="text-sm font-medium text-foreground">
-              {submitting ? 'Enviando a mails.so...' : 'Arrastra un archivo CSV/Excel o haz clic'}
+              {submitting
+                ? (submitStatus || 'Procesando...')
+                : 'Arrastra un archivo CSV/Excel o haz clic'}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Se detecta la columna email automáticamente · Máx 25.000 emails por batch
+              {submitting
+                ? 'Consultando caché primero, luego enviando solo lo faltante a mails.so'
+                : 'Se detecta la columna email automáticamente · Máx 25.000 emails por batch'}
             </p>
           </div>
         </CardContent>
