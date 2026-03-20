@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import useSWR from 'swr'
-import { Send, Sparkles, Loader2, Calendar, ChevronRight } from 'lucide-react'
+import { Send, Sparkles, Loader2, Calendar, Shuffle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
@@ -26,6 +27,7 @@ export default function NewCampaignPage() {
   const [textContent, setTextContent] = useState('')
   const [listId, setListId] = useState('')
   const [smtpId, setSmtpId] = useState('')
+  const [useAllServers, setUseAllServers] = useState(true)
   const [scheduledAt, setScheduledAt] = useState('')
   const [sendNow, setSendNow] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -58,7 +60,7 @@ export default function NewCampaignPage() {
     if (!subject.trim()) { toast.error('Subject line is required'); return }
     if (!htmlContent.trim() && !textContent.trim()) { toast.error('Email content is required'); return }
     if (!listId) { toast.error('Select a recipient list'); return }
-    if (!smtpId) { toast.error('Select an SMTP server'); return }
+    if (!useAllServers && !smtpId) { toast.error('Select an SMTP server or enable the balancer'); return }
     setSaving(true)
     setSendNow(send)
     try {
@@ -67,7 +69,9 @@ export default function NewCampaignPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name, subject, html_content: htmlContent, text_content: textContent,
-          list_id: listId, smtp_server_id: smtpId,
+          list_id: listId,
+          smtp_server_id: useAllServers ? null : smtpId,
+          use_all_servers: useAllServers,
           scheduled_at: scheduledAt || null,
         }),
       })
@@ -121,16 +125,33 @@ export default function NewCampaignPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <Label>SMTP Server</Label>
-                <Select value={smtpId} onValueChange={setSmtpId}>
-                  <SelectTrigger><SelectValue placeholder="Select server..." /></SelectTrigger>
-                  <SelectContent>
-                    {(smtpServers || []).map((s: Record<string, unknown>) => (
-                      <SelectItem key={s.id as string} value={s.id as string}>{s.name as string}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              {/* SMTP — balancer or single server */}
+              <div className="flex flex-col gap-2 rounded-lg border border-border p-3 bg-muted/30">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-0.5">
+                    <Label className="flex items-center gap-1.5 cursor-pointer">
+                      <Shuffle className="w-3.5 h-3.5 text-primary" />
+                      Balancear entre todos los SMTP
+                    </Label>
+                    <p className="text-xs text-muted-foreground">Distribuye el envío proporcionalmente según la capacidad de cada servidor.</p>
+                  </div>
+                  <Switch checked={useAllServers} onCheckedChange={setUseAllServers} />
+                </div>
+                {!useAllServers && (
+                  <Select value={smtpId} onValueChange={setSmtpId}>
+                    <SelectTrigger><SelectValue placeholder="Seleccionar servidor..." /></SelectTrigger>
+                    <SelectContent>
+                      {(smtpServers || []).map((s: Record<string, unknown>) => (
+                        <SelectItem key={s.id as string} value={s.id as string}>{s.name as string}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {useAllServers && (smtpServers || []).length > 0 && (
+                  <p className="text-xs text-primary/80">
+                    {(smtpServers || []).length} servidor{(smtpServers || []).length !== 1 ? 'es' : ''} activo{(smtpServers || []).length !== 1 ? 's' : ''} disponible{(smtpServers || []).length !== 1 ? 's' : ''}
+                  </p>
+                )}
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label>Schedule (optional)</Label>
