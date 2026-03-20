@@ -27,19 +27,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return error('Campaign has no SMTP server assigned', 400)
   }
 
-  // Fetch contacts
-  const contacts = campaign.only_verified
-    ? await sql`
-        SELECT id, email, first_name, last_name, custom_fields
-        FROM email_list_contacts
-        WHERE list_id = ${campaign.list_id}
-          AND verification_status IN ('valid', 'catch_all')
-          AND is_unsubscribed = false AND is_bounced = false`
-    : await sql`
-        SELECT id, email, first_name, last_name, custom_fields
-        FROM email_list_contacts
-        WHERE list_id = ${campaign.list_id}
-          AND is_unsubscribed = false AND is_bounced = false`
+  // Only send to contacts validated in the global cache (valid or catch_all, not expired)
+  const contacts = await sql`
+    SELECT elc.id, elc.email, elc.first_name, elc.last_name, elc.custom_fields
+    FROM email_list_contacts elc
+    INNER JOIN global_email_cache gec
+      ON gec.email = elc.email
+      AND gec.verification_status IN ('valid', 'catch_all')
+      AND gec.expires_at > NOW()
+    WHERE elc.list_id = ${campaign.list_id}
+      AND elc.is_unsubscribed = false
+      AND elc.is_bounced = false`
 
   if (contacts.length === 0) return error('No eligible recipients found for this campaign', 400)
 

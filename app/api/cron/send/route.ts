@@ -54,6 +54,11 @@ export async function GET(request: NextRequest) {
           FROM sending_queue sq
           JOIN campaign_recipients cr ON cr.id = sq.recipient_id
           JOIN campaigns c ON c.id = sq.campaign_id
+          -- Only dispatch to emails validated in the global cache
+          JOIN global_email_cache gec
+            ON gec.email = cr.email
+            AND gec.verification_status IN ('valid', 'catch_all')
+            AND gec.expires_at > NOW()
           WHERE sq.smtp_server_id = ${server.id}
             AND sq.status = 'pending'
             AND sq.scheduled_at <= NOW()
