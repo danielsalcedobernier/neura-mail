@@ -291,8 +291,8 @@ export default function SmtpPage() {
     try {
       const res = await fetch(`/api/smtp/${id}/test`, { method: 'POST' })
       const json = await res.json()
-      if (json.data?.success) toast.success('Conexión exitosa')
-      else toast.error(`Error: ${json.data?.error || json.error}`)
+      if (res.ok && json.data?.status === 'success') toast.success('Conexión SMTP exitosa')
+      else toast.error(`Error: ${json.data?.message || json.error || 'Conexión fallida'}`)
       mutate('/api/smtp')
     } catch { toast.error('Test fallido') }
     finally { setTesting(null) }
@@ -355,6 +355,15 @@ export default function SmtpPage() {
                         {Number(s.sent_today).toLocaleString()} enviados hoy · {Number(s.sent_this_hour)} esta hora
                       </p>
                     )}
+                    {s.last_tested_at && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Último test: {new Date(s.last_tested_at as string).toLocaleString('es-CL')}
+                        {' · '}
+                        <span className={s.last_test_status === 'success' ? 'text-green-600' : 'text-destructive'}>
+                          {s.last_test_status === 'success' ? 'Exitoso' : 'Fallido'}
+                        </span>
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-1.5 shrink-0">
                     <SmtpFormDialog
@@ -366,10 +375,10 @@ export default function SmtpPage() {
                       editServer={s}
                       onSuccess={() => {}}
                     />
-                    <Button size="sm" variant="outline" onClick={() => testServer(s.id as string)} disabled={testing === s.id as string}>
+                    <Button size="sm" variant="outline" title="Probar conexión SMTP" onClick={() => testServer(s.id as string)} disabled={testing === s.id as string}>
                       {testing === s.id as string ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <TestTube className="w-3.5 h-3.5" />}
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => deleteServer(s.id as string)}>
+                    <Button size="sm" variant="ghost" title="Eliminar servidor" onClick={() => deleteServer(s.id as string)}>
                       <Trash2 className="w-4 h-4 text-muted-foreground" />
                     </Button>
                   </div>
