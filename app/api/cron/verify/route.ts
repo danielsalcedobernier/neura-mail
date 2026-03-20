@@ -145,12 +145,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Pick ALL queued/running jobs that are due — never touch paused or seeding
+    // Pick ALL queued/running/paused jobs that are due
     const jobs = await sql`
       SELECT vj.id, vj.user_id, vj.credits_reserved, vj.credits_used, vj.total_emails,
              vj.mailsso_batch_id, vj.mailsso_batch_submitted_at
       FROM verification_jobs vj
-      WHERE vj.status IN ('queued', 'running', 'cache_sweeping')
+      WHERE vj.status IN ('queued', 'running', 'cache_sweeping', 'paused')
         AND vj.next_run_at <= NOW()
       ORDER BY vj.created_at ASC
     `
@@ -162,12 +162,12 @@ export async function GET(request: NextRequest) {
 
     console.log(`[cron/verify] Processing ${jobs.length} job(s): ${jobs.map((j: { id: string }) => j.id).join(', ')}`)
 
-    // Mark as running — but only those that are still queued/running/cache_sweeping (not paused by a race condition)
+    // Mark as running — including paused jobs whose next_run_at has passed (resume them)
     const jobIdsJson = JSON.stringify(jobs.map((j: { id: string }) => j.id))
     await sql`
       UPDATE verification_jobs SET status = 'running', started_at = COALESCE(started_at, NOW())
       WHERE id = ANY(SELECT value::uuid FROM json_array_elements_text(${jobIdsJson}::json))
-        AND status IN ('queued', 'running', 'cache_sweeping')
+        AND status IN ('queued', 'running', 'cache_sweeping', 'paused')
     `
 
     // Re-fetch to get only the jobs that are still 'running' (not paused mid-flight)
