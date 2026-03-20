@@ -24,10 +24,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const {
       max_per_minute, max_per_hour, max_per_day, is_active, name,
       host, port, username, from_email, from_name, encryption,
-      warmup_enabled, warmup_start_date,
+      warmup_enabled,
       warmup_initial_per_minute, warmup_increment_per_minute,
       warmup_days_per_step, warmup_max_per_minute,
     } = rest
+
+    // Convert empty string to null — Postgres rejects "" for timestamp fields
+    const warmup_start_date = rest.warmup_start_date || null
 
     await sql`
       UPDATE smtp_servers SET
