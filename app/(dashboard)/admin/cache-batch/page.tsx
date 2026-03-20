@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
-const CHUNK_SIZE        = 25_000  // max emails per mails.so batch
+const CHUNK_SIZE        = 50_000  // max emails per mails.so batch
 const LOOKUP_CHUNK_SIZE = 50_000  // max emails per cache-lookup call
 
 interface ResultSummary {
@@ -296,7 +296,7 @@ export default function CacheBatchPage() {
             <p className="text-xs text-muted-foreground mt-1">
               {submitting
                 ? 'Consultando caché primero, luego enviando solo lo faltante a mails.so'
-                : 'Se detecta la columna email automáticamente · Máx 25.000 emails por batch'}
+                : 'Se detecta la columna email automáticamente · Máx 50.000 emails por batch'}
             </p>
           </div>
         </CardContent>
