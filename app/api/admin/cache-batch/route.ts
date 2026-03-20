@@ -42,8 +42,8 @@ export async function POST(req: NextRequest) {
     if (!Array.isArray(emails) || emails.length === 0) {
       return error('emails[] required', 400)
     }
-    if (emails.length > 25000) {
-      return error('Max 25,000 emails per batch', 400)
+    if (emails.length > 50000) {
+      return error('Max 50,000 emails per batch', 400)
     }
 
     const normalized = emails

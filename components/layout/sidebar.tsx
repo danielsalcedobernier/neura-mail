@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   Mail, LayoutDashboard, CheckCircle, Send, Server, CreditCard,
   Settings, ChevronLeft, ChevronRight, LogOut, Users, Shield,
-  BarChart3, Database, Zap, Bell, FileText, Key, Package,
+  BarChart3, Database, Zap, Bell, FileText, Key, Package, Code2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -26,6 +26,7 @@ const clientNav: NavItem[] = [
   { label: 'Servidores SMTP', href: '/dashboard/smtp', icon: Server },
   { label: 'Créditos', href: '/dashboard/credits', icon: CreditCard },
   { label: 'Analíticas', href: '/dashboard/analytics', icon: BarChart3 },
+  { label: 'NeuraMail API', href: '/dashboard/developer', icon: Code2 },
   { label: 'Acceso API', href: '/dashboard/api', icon: Key },
   { label: 'Configuración', href: '/dashboard/settings', icon: Settings },
 ]
