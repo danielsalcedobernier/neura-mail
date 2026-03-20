@@ -17,6 +17,12 @@ const schema = z.object({
   max_per_minute: z.number().int().min(1).max(1000).default(10),
   max_per_hour: z.number().int().optional().nullable(),
   max_per_day: z.number().int().optional().nullable(),
+  warmup_enabled: z.boolean().optional().default(false),
+  warmup_start_date: z.string().optional().nullable(),
+  warmup_initial_per_minute: z.number().int().optional().nullable(),
+  warmup_increment_per_minute: z.number().int().optional().nullable(),
+  warmup_days_per_step: z.number().int().optional().nullable(),
+  warmup_max_per_minute: z.number().int().optional().nullable(),
 })
 
 export async function GET() {
@@ -26,7 +32,9 @@ export async function GET() {
   const servers = await sql`
     SELECT id, name, host, port, username, encryption, from_email, from_name,
            max_per_minute, max_per_hour, max_per_day, is_active, is_dedicated,
-           last_test_status, last_tested_at, sent_today, sent_this_hour, created_at
+           last_test_status, last_tested_at, sent_today, sent_this_hour, created_at,
+           warmup_enabled, warmup_start_date, warmup_initial_per_minute,
+           warmup_increment_per_minute, warmup_days_per_step, warmup_max_per_minute
     FROM smtp_servers
     WHERE user_id = ${session.id}
     ORDER BY created_at DESC
@@ -49,14 +57,20 @@ export async function POST(request: NextRequest) {
     const rows = await sql`
       INSERT INTO smtp_servers (
         user_id, name, host, port, username, password_encrypted,
-        encryption, from_email, from_name, max_per_minute, max_per_hour, max_per_day
+        encryption, from_email, from_name, max_per_minute, max_per_hour, max_per_day,
+        warmup_enabled, warmup_start_date, warmup_initial_per_minute,
+        warmup_increment_per_minute, warmup_days_per_step, warmup_max_per_minute
       ) VALUES (
         ${session.id}, ${rest.name}, ${rest.host}, ${rest.port}, ${rest.username},
         ${password_encrypted}, ${rest.encryption}, ${rest.from_email},
         ${rest.from_name || null}, ${rest.max_per_minute},
-        ${rest.max_per_hour || null}, ${rest.max_per_day || null}
+        ${rest.max_per_hour || null}, ${rest.max_per_day || null},
+        ${rest.warmup_enabled ?? false}, ${rest.warmup_start_date || null},
+        ${rest.warmup_initial_per_minute || null}, ${rest.warmup_increment_per_minute || null},
+        ${rest.warmup_days_per_step || null}, ${rest.warmup_max_per_minute || null}
       )
-      RETURNING id, name, host, port, from_email, encryption, max_per_minute, created_at
+      RETURNING id, name, host, port, from_email, encryption, max_per_minute,
+                warmup_enabled, created_at
     `
     return ok(rows[0], 201)
   } catch (e) {
