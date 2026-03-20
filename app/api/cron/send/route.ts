@@ -71,12 +71,15 @@ export async function GET(request: NextRequest) {
           continue
         }
 
+        const enc = server.encryption as string
         const transporter = nodemailer.createTransport({
           host: server.host,
-          port: server.port,
-          secure: server.encryption === 'ssl',
+          port: Number(server.port),
+          secure: enc === 'ssl',
+          ignoreTLS: enc === 'none',
+          requireTLS: enc === 'tls',
           auth: { user: server.username, pass: password },
-          tls: server.encryption !== 'ssl' ? { rejectUnauthorized: false } : undefined,
+          tls: { rejectUnauthorized: false },
           pool: true,
           maxConnections: 5,
         })

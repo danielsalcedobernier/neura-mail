@@ -19,12 +19,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const password = decrypt(server.password_encrypted)
 
+    const enc = server.encryption as string
     const transporter = nodemailer.createTransport({
       host: server.host,
-      port: server.port,
-      secure: server.encryption === 'ssl',
+      port: Number(server.port),
+      secure: enc === 'ssl',                          // true = port 465 implicit SSL
+      ignoreTLS: enc === 'none',                      // disable STARTTLS entirely
+      requireTLS: enc === 'tls',                      // force STARTTLS on port 587
       auth: { user: server.username, pass: password },
-      tls: server.encryption === 'tls' ? { rejectUnauthorized: false } : undefined,
+      tls: { rejectUnauthorized: false },             // accept self-signed certs
       connectionTimeout: 10000,
       greetingTimeout: 10000,
     })
