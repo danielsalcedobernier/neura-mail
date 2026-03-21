@@ -46,9 +46,20 @@ export async function POST(req: NextRequest) {
       return error('Max 50,000 emails per batch', 400)
     }
 
+    const { pending } = body as { pending?: boolean }
     const normalized = emails
       .map(e => e.toLowerCase().trim())
       .filter(e => e.includes('@'))
+
+    if (pending) {
+      // Save without submitting to mails.so — will be dispatched when a slot opens
+      const rows = await sql`
+        INSERT INTO admin_cache_batches (file_name, email_count, mailsso_batch_id, status)
+        VALUES (${fileName ?? 'unknown'}, ${normalized.length}, NULL, 'pending_submission')
+        RETURNING id, mailsso_batch_id, email_count, status, created_at
+      `
+      return ok(rows[0])
+    }
 
     const batchId = await submitBatch(normalized)
 

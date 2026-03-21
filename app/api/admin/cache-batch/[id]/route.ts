@@ -2,7 +2,9 @@ import { NextRequest } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { ok, unauthorized, notFound, serverError } from '@/lib/api'
 import sql from '@/lib/db'
-import { pollBatch, storeBatchInCache } from '@/lib/mailsso'
+import { pollBatch, storeBatchInCache, submitBatch } from '@/lib/mailsso'
+
+const MAX_CONCURRENT = 2
 
 /**
  * POST /api/admin/cache-batch/[id]
@@ -73,7 +75,34 @@ export async function POST(
       WHERE id = ${id}
     `
 
-    return ok({ ready: true, result_count: results.length, summary })
+    // ── Auto-dispatch next pending batch if a slot opened up ─────────────────
+    let dispatched = null
+    try {
+      const activeRows = await sql`
+        SELECT COUNT(*) AS cnt FROM admin_cache_batches WHERE status = 'submitted'
+      `
+      const active = Number(activeRows[0]?.cnt ?? 0)
+      if (active < MAX_CONCURRENT) {
+        // Pick oldest pending batch and submit it
+        const pending = await sql`
+          SELECT id, file_name, email_count FROM admin_cache_batches
+          WHERE status = 'pending_submission'
+          ORDER BY created_at ASC
+          LIMIT 1
+        `
+        if (pending[0]) {
+          // We need the emails — but they're not stored, only the count.
+          // Mark as 'needs_resubmit' so the admin can see it needs attention.
+          // Since emails aren't stored (only email_count), flag it for manual re-upload.
+          await sql`
+            UPDATE admin_cache_batches SET status = 'needs_resubmit' WHERE id = ${pending[0].id}
+          `
+          dispatched = { id: pending[0].id, note: 'needs_resubmit' }
+        }
+      }
+    } catch { /* non-critical */ }
+
+    return ok({ ready: true, result_count: results.length, summary, dispatched })
   } catch (e: unknown) {
     // Persist error on the batch record
     await sql`

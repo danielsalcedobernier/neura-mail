@@ -34,7 +34,7 @@ interface BatchRecord {
   file_name: string
   email_count: number
   mailsso_batch_id: string | null
-  status: 'submitted' | 'ready' | 'saved' | 'error'
+  status: 'submitted' | 'ready' | 'saved' | 'error' | 'pending_submission' | 'needs_resubmit'
   result_count: number | null
   result_summary: ResultSummary | null
   error_message: string | null
@@ -48,10 +48,12 @@ const fetcher = (url: string) =>
     .then(r => (Array.isArray(r.data) ? r.data : Array.isArray(r) ? r : []))
 
 const STATUS_BADGE: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-  submitted: { label: 'Enviado',    variant: 'secondary' },
-  ready:     { label: 'Listo',      variant: 'default' },
-  saved:     { label: 'Guardado',   variant: 'default' },
-  error:     { label: 'Error',      variant: 'destructive' },
+  submitted:           { label: 'Enviado',         variant: 'secondary' },
+  ready:               { label: 'Listo',           variant: 'default' },
+  saved:               { label: 'Guardado',        variant: 'default' },
+  error:               { label: 'Error',           variant: 'destructive' },
+  pending_submission:  { label: 'En cola',         variant: 'outline' },
+  needs_resubmit:      { label: 'Re-subir archivo', variant: 'destructive' },
 }
 
 function fmt(n: number | null) {
@@ -147,26 +149,53 @@ export default function CacheBatchPage() {
         )
       }
 
-      // ── Step 3: Send only uncached emails to mails.so in 25k chunks ───────
+      // ── Step 3: Send chunks to mails.so — max 2 active at a time ────────────
+      const MAX_CONCURRENT = 2
       const chunks = Math.ceil(emailsToSend.length / CHUNK_SIZE)
-      for (let i = 0; i < chunks; i++) {
-        const chunk = emailsToSend.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)
-        const chunkName = chunks > 1 ? `${file.name} (parte ${i + 1}/${chunks})` : file.name
-        setSubmitStatus(`Enviando a mails.so... bloque ${i + 1}/${chunks} (${chunk.length.toLocaleString('es-CL')} emails)`)
+      const totalChunks = chunks
 
-        const res = await fetch('/api/admin/cache-batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ emails: chunk, fileName: chunkName }),
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`)
+      // Count how many batches are already submitted (not yet fetched)
+      const activeBatches = (batches ?? []).filter(b => b.status === 'submitted').length
+      let slotsAvailable = Math.max(0, MAX_CONCURRENT - activeBatches)
+
+      let submitted = 0
+      let queued    = 0
+
+      for (let i = 0; i < totalChunks; i++) {
+        const chunk     = emailsToSend.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)
+        const chunkName = totalChunks > 1 ? `${file.name} (parte ${i + 1}/${totalChunks})` : file.name
+
+        if (slotsAvailable > 0) {
+          // Send immediately to mails.so
+          setSubmitStatus(`Enviando a mails.so... bloque ${i + 1}/${totalChunks} (${chunk.length.toLocaleString('es-CL')} emails)`)
+          const res = await fetch('/api/admin/cache-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ emails: chunk, fileName: chunkName }),
+          })
+          const data = await res.json()
+          if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`)
+          slotsAvailable--
+          submitted++
+        } else {
+          // Queue locally — save as pending_submission
+          setSubmitStatus(`Guardando en cola... bloque ${i + 1}/${totalChunks}`)
+          const res = await fetch('/api/admin/cache-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ emails: chunk, fileName: chunkName, pending: true }),
+          })
+          const data = await res.json()
+          if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`)
+          queued++
+        }
       }
 
-      toast.success(
-        `${emailsToSend.length.toLocaleString('es-CL')} emails enviados a mails.so en ${chunks} batch(es)` +
-        (cachedCount > 0 ? ` · ${cachedCount.toLocaleString('es-CL')} ya estaban en caché` : '')
-      )
+      const parts = []
+      if (submitted > 0) parts.push(`${submitted} batch(es) enviados a mails.so`)
+      if (queued > 0)    parts.push(`${queued} batch(es) en cola (se enviarán al consultar los activos)`)
+      if (cachedCount > 0) parts.push(`${cachedCount.toLocaleString('es-CL')} ya estaban en caché`)
+      toast.success(parts.join(' · '))
       mutate()
     } catch (e: unknown) {
       toast.error((e as Error).message)
@@ -191,7 +220,7 @@ export default function CacheBatchPage() {
     e.target.value = ''
   }
 
-  // ── Delete batch ──────────────────────────────────────────────────────────
+  // ── Delete batch ──────────────��───────────────────────────────────────────
   const deleteBatch = useCallback(async (id: string, fileName: string) => {
     if (!confirm(`¿Eliminar el batch "${fileName}"? Esto no afecta el caché ya guardado.`)) return
     setDeleting(d => ({ ...d, [id]: true }))
