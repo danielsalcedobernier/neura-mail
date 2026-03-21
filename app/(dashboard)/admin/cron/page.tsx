@@ -10,14 +10,18 @@ import { useState } from 'react'
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
 
 const CRON_DESCRIPTIONS: Record<string, string> = {
-  process_verification_queue: 'Picks up queued verification jobs and processes emails via cache/API',
+  verify_seed: 'Populates verification_job_items from email_list_contacts for queued jobs',
+  verify_sweep: 'Checks verification_job_items against global_email_cache (10k/tick)',
+  verify_process: 'Sends batches to mails.so and writes results back to DB',
   process_sending_queue: 'Sends individual emails for running campaigns (throttled by SMTP limits)',
   maintenance: 'Removes expired sessions, cache entries, and stale locks',
   sync_verification_progress: 'Updates processed/valid/invalid counters on running verification jobs',
 }
 
 const CRON_ENDPOINTS: Record<string, string> = {
-  process_verification_queue: '/api/cron/verify',
+  verify_seed: '/api/cron/verify-seed',
+  verify_sweep: '/api/cron/verify-sweep',
+  verify_process: '/api/cron/verify-process',
   process_sending_queue: '/api/cron/send',
   maintenance: '/api/cron/maintenance',
   sync_verification_progress: '/api/cron/sync_verification_progress',
