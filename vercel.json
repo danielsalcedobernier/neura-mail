@@ -1,7 +1,15 @@
 {
   "crons": [
     {
-      "path": "/api/cron/verify",
+      "path": "/api/cron/verify-seed",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/verify-sweep",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/verify-process",
       "schedule": "* * * * *"
     },
     {
