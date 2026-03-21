@@ -167,12 +167,12 @@ export async function checkCacheBulk(
 ): Promise<Map<string, VerificationResult>> {
   if (emails.length === 0) return new Map()
   const normalized = emails.map(e => e.toLowerCase())
-  const normalizedJson = JSON.stringify(normalized)
+  // Use native Postgres array — hits the email index directly, no json unnesting
   const rows = await sql`
     SELECT email, verification_status, verification_score, mx_found, smtp_valid,
            is_disposable, is_role_based, is_catch_all, provider, raw_response
     FROM global_email_cache
-    WHERE email = ANY(SELECT value FROM json_array_elements_text(${normalizedJson}::json))
+    WHERE email = ANY(${normalized}::text[])
       AND expires_at > NOW()
   `
   return new Map(rows.map((r: Record<string, unknown>) => [r.email as string, rowToResult(r)]))

@@ -59,11 +59,19 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // ── PHASE 1: CACHE SWEEP ─────────────────────────────────────────────────
+    // ── PHASE 1: CACHE SWEEP (exclusive — if sweep work exists, skip Phase 2) ─
     const sweepingJobs = await sql`
       SELECT id, user_id FROM verification_jobs WHERE status = 'cache_sweeping'
       ORDER BY created_at ASC
     `
+    // If there are active jobs in queue/running, don't also sweep in this tick
+    // — prevents the 55s timeout from being split between two heavy phases
+    const hasQueuedJobs = await sql`
+      SELECT 1 FROM verification_jobs
+      WHERE status IN ('queued','running') AND next_run_at <= NOW() LIMIT 1
+    `
+    const sweepOnly = sweepingJobs.length > 0 && hasQueuedJobs.length > 0
+
     for (const sw of sweepingJobs) {
       const sweepItems = await sql`
         SELECT id, email FROM verification_job_items
@@ -105,6 +113,9 @@ export async function GET(request: NextRequest) {
       }
       await sql`UPDATE verification_jobs SET next_run_at=NOW() WHERE id=${sw.id}`
     }
+
+    // If this tick was sweep-only, skip Phase 2 entirely to avoid timeout
+    if (sweepOnly) return { sweepOnly: true, sweptJobs: sweepingJobs.length }
 
     // ── FAIL STUCK JOBS ───────────────────────────────────────────────────────
     const stuckJobs = await sql`
