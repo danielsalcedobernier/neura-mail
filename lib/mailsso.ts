@@ -169,17 +169,12 @@ export async function checkCacheBulk(
   const normalized = emails.map(e => e.toLowerCase())
   const normalizedJson = JSON.stringify(normalized)
   const rows = await sql`
-    SELECT * FROM global_email_cache
-    WHERE email = ANY(SELECT value FROM json_array_elements_text(${normalizedJson}::json)) AND expires_at > NOW()
+    SELECT email, verification_status, verification_score, mx_found, smtp_valid,
+           is_disposable, is_role_based, is_catch_all, provider, raw_response
+    FROM global_email_cache
+    WHERE email = ANY(SELECT value FROM json_array_elements_text(${normalizedJson}::json))
+      AND expires_at > NOW()
   `
-  // Bump hit counts in one query
-  if (rows.length > 0) {
-    const hitsJson = JSON.stringify(rows.map((r: Record<string, unknown>) => r.email as string))
-    await sql`
-      UPDATE global_email_cache SET hit_count = hit_count + 1
-      WHERE email = ANY(SELECT value FROM json_array_elements_text(${hitsJson}::json))
-    `
-  }
   return new Map(rows.map((r: Record<string, unknown>) => [r.email as string, rowToResult(r)]))
 }
 

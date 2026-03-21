@@ -7,9 +7,10 @@ import { checkCacheBulk, storeBatchInCache, submitBatch, pollBatch } from '@/lib
 import { ok, error } from '@/lib/api'
 
 const BATCH_SIZE   = 25000   // max emails per mails.so call
-const SWEEP_CHUNK  = 100000  // emails per cache-sweep tick
+const SWEEP_CHUNK  = 10000   // emails per cache-sweep tick (keep query fast)
+const CACHE_CHUNK  = 2000    // rows per checkCacheBulk call (avoids giant IN queries)
 const SEED_CHUNK   = 500000  // contacts per seeding tick
-const WRITE_CHUNK  = 5000    // rows per bulk UPDATE
+const WRITE_CHUNK  = 2000    // rows per bulk UPDATE
 
 function validateCronRequest(request: NextRequest): boolean {
   const secret = process.env.CRON_SECRET
@@ -73,23 +74,28 @@ export async function GET(request: NextRequest) {
         await sql`UPDATE verification_jobs SET status='queued', next_run_at=NOW() WHERE id=${sw.id}`
         continue
       }
-      const cacheMap   = await checkCacheBulk(sweepItems.map((i: { email: string }) => i.email))
-      const cacheHits  = sweepItems.filter((i: { email: string }) => cacheMap.has(i.email.toLowerCase()))
+      // Check cache in small sub-batches to avoid giant IN queries timing out
+      const cacheHits: { id: string; email: string; status: string }[] = []
+      for (let ci = 0; ci < sweepItems.length; ci += CACHE_CHUNK) {
+        const subBatch = sweepItems.slice(ci, ci + CACHE_CHUNK)
+        const subMap = await checkCacheBulk(subBatch.map((i: { email: string }) => i.email))
+        for (const item of subBatch) {
+          const hit = subMap.get(item.email.toLowerCase())
+          if (hit) cacheHits.push({ id: item.id as string, email: item.email as string, status: hit.status })
+        }
+      }
+
       if (cacheHits.length > 0) {
         for (let i = 0; i < cacheHits.length; i += WRITE_CHUNK) {
           const chunk = cacheHits.slice(i, i + WRITE_CHUNK)
-          const itemsPayload = JSON.stringify(chunk.map((item: { id: string; email: string }) => ({
-            id: item.id, result: cacheMap.get(item.email.toLowerCase())!.status,
-          })))
+          const itemsPayload = JSON.stringify(chunk.map(item => ({ id: item.id, result: item.status })))
           await sql`
             UPDATE verification_job_items SET status='completed', result=v.result,
               from_cache=true, credits_charged=1, processed_at=NOW()
             FROM json_to_recordset(${itemsPayload}::json) AS v(id uuid, result text)
             WHERE verification_job_items.id = v.id
           `
-          const contactsPayload = JSON.stringify(chunk.map((item: { id: string; email: string }) => ({
-            contact_id: item.id, status: cacheMap.get(item.email.toLowerCase())!.status,
-          })))
+          const contactsPayload = JSON.stringify(chunk.map(item => ({ contact_id: item.id, status: item.status })))
           await sql`
             UPDATE email_list_contacts SET verification_status=v.status, verified_at=NOW()
             FROM json_to_recordset(${contactsPayload}::json) AS v(contact_id uuid, status text)
@@ -242,26 +248,31 @@ export async function GET(request: NextRequest) {
       `
       if (items.length === 0) continue
 
-      // Check cache first for this job's items
-      const cacheMap  = await checkCacheBulk(items.map((i: { email: string }) => i.email))
-      const cacheHits = items.filter((i: { email: string }) => cacheMap.has(i.email.toLowerCase()))
-      const needsApi  = items.filter((i: { email: string }) => !cacheMap.has(i.email.toLowerCase()))
+      // Check cache in sub-batches to avoid giant IN queries
+      const cacheHits2: { id: string; email: string; status: string }[] = []
+      const needsApiSet = new Set<string>()
+      for (let ci = 0; ci < items.length; ci += CACHE_CHUNK) {
+        const sub = items.slice(ci, ci + CACHE_CHUNK)
+        const subMap = await checkCacheBulk(sub.map((i: { email: string }) => i.email))
+        for (const item of sub) {
+          const hit = subMap.get((item.email as string).toLowerCase())
+          if (hit) cacheHits2.push({ id: item.id as string, email: item.email as string, status: hit.status })
+          else needsApiSet.add((item.email as string).toLowerCase())
+        }
+      }
+      const needsApi = items.filter((i: { email: string }) => needsApiSet.has((i.email as string).toLowerCase()))
 
-      if (cacheHits.length > 0) {
-        for (let i = 0; i < cacheHits.length; i += WRITE_CHUNK) {
-          const chunk = cacheHits.slice(i, i + WRITE_CHUNK)
-          const ip = JSON.stringify(chunk.map((item: { id: string; email: string }) => ({
-            id: item.id, result: cacheMap.get(item.email.toLowerCase())!.status,
-          })))
+      if (cacheHits2.length > 0) {
+        for (let i = 0; i < cacheHits2.length; i += WRITE_CHUNK) {
+          const chunk = cacheHits2.slice(i, i + WRITE_CHUNK)
+          const ip = JSON.stringify(chunk.map(item => ({ id: item.id, result: item.status })))
           await sql`
             UPDATE verification_job_items SET status='completed', result=v.result,
               from_cache=true, credits_charged=1, processed_at=NOW()
             FROM json_to_recordset(${ip}::json) AS v(id uuid, result text)
             WHERE verification_job_items.id = v.id
           `
-          const cp = JSON.stringify(chunk.map((item: { id: string; email: string }) => ({
-            contact_id: item.id, status: cacheMap.get(item.email.toLowerCase())!.status,
-          })))
+          const cp = JSON.stringify(chunk.map(item => ({ contact_id: item.id, status: item.status })))
           await sql`
             UPDATE email_list_contacts SET verification_status=v.status, verified_at=NOW()
             FROM json_to_recordset(${cp}::json) AS v(contact_id uuid, status text)
@@ -352,7 +363,7 @@ export async function GET(request: NextRequest) {
   return ok(result.result)
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// ── Helpers ──��─────────────────────────────────────────────────────────────
 
 async function failJob(job: { id: string; user_id: string; credits_reserved: number }, reason: string) {
   const charged = await sql`
