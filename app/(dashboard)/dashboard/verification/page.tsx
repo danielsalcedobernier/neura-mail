@@ -43,17 +43,42 @@ const jobStatusLabel: Record<string, string> = {
 }
 
 function JobList({ jobs, onMutate }: { jobs: Record<string, unknown>[]; onMutate: () => void }) {
+  const [loadingId, setLoadingId] = useState<string | null>(null)
+
   async function pauseJob(id: string) {
-    await fetch(`/api/verification/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pause' }) })
-    onMutate()
+    setLoadingId(`pause-${id}`)
+    try {
+      const res = await fetch(`/api/verification/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pause' }) })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error || 'Error al pausar'); return }
+      toast.success('Job pausado')
+      onMutate()
+    } catch { toast.error('Error al pausar') }
+    finally { setLoadingId(null) }
   }
+
   async function resumeJob(id: string) {
-    await fetch(`/api/verification/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'resume' }) })
-    onMutate()
+    setLoadingId(`resume-${id}`)
+    try {
+      const res = await fetch(`/api/verification/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'resume' }) })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error || 'Error al reanudar'); return }
+      toast.success('Job reanudado')
+      onMutate()
+    } catch { toast.error('Error al reanudar') }
+    finally { setLoadingId(null) }
   }
+
   async function cancelJob(id: string) {
-    await fetch(`/api/verification/${id}`, { method: 'DELETE' })
-    onMutate()
+    setLoadingId(`cancel-${id}`)
+    try {
+      const res = await fetch(`/api/verification/${id}`, { method: 'DELETE' })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error || 'Error al cancelar'); return }
+      toast.success(`Job cancelado · ${json.data?.creditsRefunded ?? 0} créditos reembolsados`)
+      onMutate()
+    } catch { toast.error('Error al cancelar') }
+    finally { setLoadingId(null) }
   }
 
   return (
@@ -82,18 +107,18 @@ function JobList({ jobs, onMutate }: { jobs: Record<string, unknown>[]; onMutate
                 </div>
                 <div className="flex gap-1.5 shrink-0 items-center">
                   {['seeding', 'cache_sweeping', 'queued', 'running'].includes(job.status as string) && (
-                    <Button size="sm" variant="outline" onClick={() => pauseJob(id)} title="Pausar">
-                      <Pause className="w-3.5 h-3.5" />
+                    <Button size="sm" variant="outline" onClick={() => pauseJob(id)} title="Pausar" disabled={!!loadingId}>
+                      {loadingId === `pause-${id}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pause className="w-3.5 h-3.5" />}
                     </Button>
                   )}
                   {(job.status === 'paused' || job.status === 'failed') && (
-                    <Button size="sm" variant="outline" onClick={() => resumeJob(id)} title="Reanudar">
-                      <Play className="w-3.5 h-3.5" />
+                    <Button size="sm" variant="outline" onClick={() => resumeJob(id)} title="Reanudar" disabled={!!loadingId}>
+                      {loadingId === `resume-${id}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
                     </Button>
                   )}
                   {isActive && (
-                    <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => cancelJob(id)} title="Cancelar y reembolsar créditos">
-                      <XCircle className="w-3.5 h-3.5" />
+                    <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => cancelJob(id)} title="Cancelar y reembolsar créditos" disabled={!!loadingId}>
+                      {loadingId === `cancel-${id}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
                     </Button>
                   )}
                 </div>
