@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { requireAdmin } from '@/lib/auth'
+import { requireWorkerOrAdmin } from '@/lib/auth'
 import { ok, forbidden, serverError } from '@/lib/api'
 import { pollBatch, submitBatch, checkCacheBulk } from '@/lib/mailsso'
 import sql from '@/lib/db'
@@ -7,7 +7,7 @@ import sql from '@/lib/db'
 export const maxDuration = 30
 
 export async function POST(req: NextRequest) {
-  try { await requireAdmin() } catch { return forbidden() }
+  try { await requireWorkerOrAdmin() } catch { return forbidden() }
   try {
     const { jobId, action } = await req.json() as { jobId: string; action: 'poll' | 'submit' | 'cache-check' }
 

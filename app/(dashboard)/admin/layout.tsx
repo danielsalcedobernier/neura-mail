@@ -6,11 +6,14 @@ import { Toaster } from '@/components/ui/sonner'
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession()
   if (!session) redirect('/login')
-  if (session.role !== 'admin') redirect('/dashboard')
+  if (session.role !== 'admin' && session.role !== 'worker') redirect('/dashboard')
+
+  // Worker route protection is handled in middleware.ts
+  const sidebarRole = session.role === 'worker' ? 'worker' : 'admin'
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      <Sidebar role="admin" userName={session.full_name || session.email} userEmail={session.email} />
+      <Sidebar role={sidebarRole} userName={session.full_name || session.email} userEmail={session.email} />
       <main className="flex-1 overflow-y-auto">
         {children}
       </main>

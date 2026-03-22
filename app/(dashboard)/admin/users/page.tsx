@@ -195,7 +195,9 @@ export default function AdminUsersPage() {
                     </td>
                     <td className="px-5 py-3">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        u.role === 'admin' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                        u.role === 'admin'  ? 'bg-primary/10 text-primary' :
+                        u.role === 'worker' ? 'bg-orange-500/10 text-orange-600' :
+                        'bg-muted text-muted-foreground'
                       }`}>
                         {u.role}
                       </span>
@@ -271,6 +273,7 @@ export default function AdminUsersPage() {
                 <SelectContent>
                   <SelectItem value="client">Cliente</SelectItem>
                   <SelectItem value="admin">Administrador</SelectItem>
+                  <SelectItem value="worker">Worker (solo verificación)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -303,6 +306,7 @@ export default function AdminUsersPage() {
                   <SelectContent>
                     <SelectItem value="client">Cliente</SelectItem>
                     <SelectItem value="admin">Administrador</SelectItem>
+                    <SelectItem value="worker">Worker (solo verificación)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

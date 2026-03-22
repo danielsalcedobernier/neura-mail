@@ -11,7 +11,7 @@ export interface SessionUser {
   id: string
   email: string
   full_name: string | null
-  role: 'admin' | 'client'
+  role: 'admin' | 'client' | 'worker'
 }
 
 export async function createSessionToken(user: SessionUser): Promise<string> {
@@ -71,6 +71,14 @@ export async function requireAuth(): Promise<SessionUser> {
 export async function requireAdmin(): Promise<SessionUser> {
   const session = await requireAuth()
   if (session.role !== 'admin') {
+    throw new Error('FORBIDDEN')
+  }
+  return session
+}
+
+export async function requireWorkerOrAdmin(): Promise<SessionUser> {
+  const session = await requireAuth()
+  if (session.role !== 'admin' && session.role !== 'worker') {
     throw new Error('FORBIDDEN')
   }
   return session
