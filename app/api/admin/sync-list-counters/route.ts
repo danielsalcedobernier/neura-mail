@@ -1,13 +1,12 @@
 import { NextRequest } from 'next/server'
-import { getSession } from '@/lib/auth'
-import { ok, unauthorized, serverError } from '@/lib/api'
+import { requireAdmin } from '@/lib/auth'
+import { ok, forbidden, serverError } from '@/lib/api'
 import sql from '@/lib/db'
 
 export const maxDuration = 300 // 5 min — admin-only, long running
 
 export async function POST(req: NextRequest) {
-  const session = await getSession()
-  if (!session?.isAdmin) return unauthorized()
+  try { await requireAdmin() } catch { return forbidden() }
 
   try {
     const { listId, jobId } = await req.json()
