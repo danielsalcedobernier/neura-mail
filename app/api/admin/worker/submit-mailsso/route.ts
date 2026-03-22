@@ -25,12 +25,15 @@ export async function POST(req: NextRequest) {
     if (action === 'submit') {
       if (!items || items.length === 0) return ok({ submitted: 0 })
 
+      const newBatchId = await submitBatch(items.map(i => i.email))
+
+      // Mark items as processing and store the mailsso batchId so poll can find them exactly
       const ids = items.map(i => i.id)
       await sql`
-        UPDATE verification_job_items SET status = 'processing'
+        UPDATE verification_job_items
+        SET status = 'processing', mailsso_batch_id = ${newBatchId}
         WHERE id = ANY(${ids}::uuid[])
       `
-      const newBatchId = await submitBatch(items.map(i => i.email))
       return ok({ batchId: newBatchId, submitted: items.length })
     }
 
@@ -44,11 +47,10 @@ export async function POST(req: NextRequest) {
       // Build result map
       const resultMap = new Map(results.map(r => [r.email.toLowerCase(), r.status]))
 
-      // Get the processing items for this batch from DB (matched by batchId stored on job)
+      // Fetch exactly the items that belong to THIS batch using mailsso_batch_id
       const processingItems = await sql`
         SELECT id, email FROM verification_job_items
-        WHERE job_id = ${jobId} AND status = 'processing'
-        LIMIT 10000
+        WHERE job_id = ${jobId} AND mailsso_batch_id = ${batchId}
       `
 
       // Write results in sub-chunks of 1k
