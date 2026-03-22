@@ -78,13 +78,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     WHERE id = ${id}
   `
 
+  // Fallback server for any recipient that didn't get assigned (e.g. allocate() returned fewer slots)
+  const fallbackSmtpId = smtpAssignments.get(0) ?? null
+  if (!fallbackSmtpId) return error('Failed to assign SMTP server to recipients', 500)
+
   // Insert recipients and sending_queue in batches
   const BATCH = 200
   for (let i = 0; i < eligible.length; i += BATCH) {
     const batch = eligible.slice(i, i + BATCH)
     for (let j = 0; j < batch.length; j++) {
       const contact = batch[j]
-      const smtpId = smtpAssignments.get(i + j)!
+      const smtpId = smtpAssignments.get(i + j) ?? fallbackSmtpId
       const recRows = await sql`
         INSERT INTO campaign_recipients
           (campaign_id, contact_id, email, first_name, last_name, custom_fields, smtp_server_id)
