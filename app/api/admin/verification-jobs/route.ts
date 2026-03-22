@@ -10,10 +10,19 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get('status') ?? 'completed'
 
   const rows = await sql`
-    SELECT id, list_id, status, created_at
-    FROM verification_jobs
-    WHERE status = ${status}
-    ORDER BY created_at DESC
+    SELECT
+      vj.id,
+      vj.list_id,
+      vj.status,
+      vj.created_at,
+      el.name        AS list_name,
+      el.total_count,
+      u.email        AS user_email
+    FROM verification_jobs vj
+    LEFT JOIN email_lists el ON el.id = vj.list_id
+    LEFT JOIN users u ON u.id = el.user_id
+    WHERE vj.status = ${status}
+    ORDER BY vj.created_at DESC
   `
   return ok(rows)
 }

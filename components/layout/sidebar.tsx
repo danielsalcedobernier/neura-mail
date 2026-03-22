@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   Mail, LayoutDashboard, CheckCircle, Send, Server, CreditCard,
   Settings, ChevronLeft, ChevronRight, LogOut, Users, Shield,
-  BarChart3, Database, Zap, Bell, FileText, Key, Package, Code2,
+  BarChart3, Database, Zap, Bell, FileText, Key, Package, Code2, Activity,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -45,6 +45,7 @@ const adminNav: NavItem[] = [
   { label: 'Batch → Caché', href: '/admin/cache-batch', icon: Database },
   { label: 'Listas', href: '/admin/lists', icon: FileText },
   { label: 'Propagador', href: '/admin/propagate', icon: Zap },
+  { label: 'Worker Verif.', href: '/admin/worker', icon: Activity },
   { label: 'Campaigns', href: '/admin/campaigns', icon: Send },
   { label: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
   { label: 'Notifications', href: '/admin/notifications', icon: Bell },
