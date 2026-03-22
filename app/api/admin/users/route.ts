@@ -16,21 +16,28 @@ export async function POST(request: NextRequest) {
     if (existing[0]) return error('Email already in use', 409)
 
     const password_hash = await bcrypt.hash(password, 12)
-    const FREE_CREDITS = 1000
+    const validRoles = ['admin', 'client', 'worker']
+    if (!validRoles.includes(role)) return error('Invalid role', 400)
 
     const [user] = await sql`
       INSERT INTO users (email, full_name, password_hash, role, is_active, email_verified)
       VALUES (${email.toLowerCase().trim()}, ${full_name || null}, ${password_hash}, ${role}, true, true)
       RETURNING id, email, full_name, role
     `
-    await sql`
-      INSERT INTO user_credits (user_id, balance, total_purchased, total_used)
-      VALUES (${user.id}, ${FREE_CREDITS}, ${FREE_CREDITS}, 0)
-    `
-    await sql`
-      INSERT INTO credit_transactions (user_id, amount, type, description, balance_after)
-      VALUES (${user.id}, ${FREE_CREDITS}, 'bonus', 'Welcome bonus — created by admin', ${FREE_CREDITS})
-    `
+
+    // Workers don't need credits — they only access the verification worker
+    if (role !== 'worker') {
+      const FREE_CREDITS = 1000
+      await sql`
+        INSERT INTO user_credits (user_id, balance, total_purchased, total_used)
+        VALUES (${user.id}, ${FREE_CREDITS}, ${FREE_CREDITS}, 0)
+      `
+      await sql`
+        INSERT INTO credit_transactions (user_id, amount, type, description, balance_after)
+        VALUES (${user.id}, ${FREE_CREDITS}, 'bonus', 'Welcome bonus — created by admin', ${FREE_CREDITS})
+      `
+    }
+
     return ok(user)
   } catch (e) {
     console.error('[admin/users POST]', e)
