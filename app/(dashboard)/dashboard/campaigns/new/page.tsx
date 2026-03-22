@@ -330,15 +330,8 @@ export default function NewCampaignPage() {
     try {
       const res = await fetch('/api/campaigns/generate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept-Language': navigator.language || 'es',
-        },
-        body: JSON.stringify({
-          prompt: aiPrompt,
-          subject,
-          language: navigator.language?.split('-')[0] || 'es',
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: aiPrompt, subject }),
       })
       const json = await res.json()
       if (!res.ok) { toast.error(json.error || 'Error al generar'); return }

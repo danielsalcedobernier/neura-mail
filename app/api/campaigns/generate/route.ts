@@ -56,11 +56,34 @@ export async function POST(request: NextRequest) {
 
     const { prompt, tone, subject } = parsed.data
 
-    // Language: explicit from body takes priority, then Accept-Language header, then 'es'
-    const acceptLang = request.headers.get('accept-language') || ''
-    const headerLang = acceptLang.split(',')[0]?.split('-')[0]?.toLowerCase() || 'es'
-    // parsed.data.language comes from the client (navigator.language) — always trust it
-    const detectedLang = parsed.data.language || headerLang || 'es'
+    // Detect language from the prompt text itself — most reliable approach
+    // Simple heuristic: count words that are unique to each language
+    function detectPromptLanguage(text: string): string {
+      const t = text.toLowerCase()
+      const scores: Record<string, number> = { es: 0, en: 0, pt: 0, fr: 0, de: 0, it: 0 }
+      const markers: Record<string, string[]> = {
+        es: ['que','con','una','para','por','como','los','las','del','pero','también','hacer','quiero','visita','página','mail','campaña','verano','invierno','oferta','crear','este','esta','donde','puede','todo','muy','más'],
+        en: ['the','and','for','with','that','this','have','from','they','will','your','what','create','make','visit','page','mail','campaign','summer','winter','offer','website'],
+        pt: ['que','com','uma','para','por','como','os','as','do','mas','também','fazer','quero','visita','página','campanha','verão','inverno','oferta'],
+        fr: ['que','avec','une','pour','par','comme','les','des','mais','aussi','faire','veux','visite','page','mail','campagne','été','hiver','offre'],
+        de: ['und','für','mit','das','die','der','ein','eine','aber','auch','machen','will','besuche','seite','mail','kampagne','sommer','winter','angebot'],
+        it: ['che','con','una','per','come','gli','del','ma','anche','fare','voglio','visita','pagina','mail','campagna','estate','inverno','offerta'],
+      }
+      for (const [lang, words] of Object.entries(markers)) {
+        for (const w of words) {
+          if (new RegExp(`\\b${w}\\b`).test(t)) scores[lang]++
+        }
+      }
+      const best = Object.entries(scores).sort((a, b) => b[1] - a[1])[0]
+      // Only override if we have strong signal (3+ matching words), otherwise fallback to client lang
+      if (best[1] >= 3) return best[0]
+      // Fallback: client language or Accept-Language header
+      const acceptLang = request.headers.get('accept-language') || ''
+      const headerLang = acceptLang.split(',')[0]?.split('-')[0]?.toLowerCase() || 'es'
+      return parsed.data.language || headerLang || 'es'
+    }
+
+    const detectedLang = detectPromptLanguage(prompt)
 
     const { cleanPrompt, webContent } = await extractUrlContent(prompt)
 
