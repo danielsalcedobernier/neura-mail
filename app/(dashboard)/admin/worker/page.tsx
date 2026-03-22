@@ -62,20 +62,6 @@ export default function WorkerPage() {
     logBottom.current?.scrollIntoView({ behavior: 'smooth' })
   }, [log])
 
-  // Auto-start when jobs load and there are pending jobs — uses ref to avoid TDZ
-  useEffect(() => {
-    if (!autoStarted.current && !isLoading && jobs && !running) {
-      const pending = jobs.filter(j => j.status !== 'completed')
-      if (pending.length > 0 && startRef.current) {
-        autoStarted.current = true
-        startRef.current()
-      }
-    }
-  }, [jobs, isLoading, running])
-
-  // Keep startRef in sync so the auto-start useEffect can call it without TDZ issues
-  useEffect(() => { startRef.current = start }, [start])
-
   const stop = useCallback(() => {
     stopRef.current = true
     setRunning(false)
@@ -247,6 +233,20 @@ export default function WorkerPage() {
     }
     setActiveJob(null)
   }, [jobs, processJob, addLog, mutate])
+
+  // Keep ref in sync — must be after `start` is declared
+  useEffect(() => { startRef.current = start }, [start])
+
+  // Auto-start when jobs load and there are pending jobs
+  useEffect(() => {
+    if (!autoStarted.current && !isLoading && jobs && !running && startRef.current) {
+      const pending = jobs.filter(j => j.status !== 'completed')
+      if (pending.length > 0) {
+        autoStarted.current = true
+        startRef.current()
+      }
+    }
+  }, [jobs, isLoading, running])
 
   const progress = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0
   const eta = speed > 0 && total > completed
