@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   Mail, LayoutDashboard, CheckCircle, Send, Server, CreditCard,
   Settings, ChevronLeft, ChevronRight, LogOut, Users, Shield,
-  BarChart3, Database, Zap, Bell, FileText, Key, Package, Code2, Activity,
+  BarChart3, Database, Zap, Bell, FileText, Key, Package, Code2, Activity, Download,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -43,6 +43,7 @@ const adminNav: NavItem[] = [
   { label: 'Divisor de BBDD', href: '/admin/db-splitter', icon: Database },
   { label: 'Importar Caché', href: '/admin/cache-import', icon: Database },
   { label: 'Batch → Caché', href: '/admin/cache-batch', icon: Database },
+  { label: 'Exportar Caché', href: '/admin/cache-export', icon: Download },
   { label: 'Listas', href: '/admin/lists', icon: FileText },
   { label: 'Propagador', href: '/admin/propagate', icon: Zap },
   { label: 'Worker Verif.', href: '/admin/worker', icon: Activity },
