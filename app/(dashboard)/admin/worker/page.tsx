@@ -91,12 +91,12 @@ export default function WorkerPage() {
     addLog(`Batch enviado a mails.so: ${missItems.length.toLocaleString('es-CL')} emails | id: ${batchId}`, 'ok')
     setInFlight(prev => prev + 1)
 
-    // Poll until ready
+    // Poll until ready — max 60 attempts (~30 min at 30s interval) to avoid infinite loop
+    const MAX_POLL_ATTEMPTS = 60
     let ready = false
     let attempts = 0
-    while (!stopRef.current && !ready) {
+    while (!stopRef.current && !ready && attempts < MAX_POLL_ATTEMPTS) {
       attempts++
-      addLog(`Batch ${batchId.slice(0, 8)}... — poll #${attempts}, esperando ${POLL_INTERVAL_MS / 1000}s`, 'info')
       await sleep(POLL_INTERVAL_MS)
       if (stopRef.current) break
 
@@ -107,16 +107,26 @@ export default function WorkerPage() {
       })
       const pollData = await pollRes.json()
 
+      if (!pollRes.ok) {
+        addLog(`Error en poll #${attempts} batch ${batchId.slice(0, 8)}: ${pollData.error ?? pollRes.status}`, 'error')
+        // Retry up to max attempts — don't break immediately on network errors
+        continue
+      }
+
       if (pollData.data?.ready) {
         const written = pollData.data.written ?? 0
-        addLog(`Batch ${batchId.slice(0, 8)}... listo. ${written.toLocaleString('es-CL')} emails escritos.`, 'ok')
+        addLog(`Batch ${batchId.slice(0, 8)}... listo en ${attempts} intentos. ${written.toLocaleString('es-CL')} emails escritos.`, 'ok')
         setMailssoHits(prev => prev + written)
         setInFlight(prev => Math.max(0, prev - 1))
         ready = true
         return written
       } else {
-        addLog(`Batch ${batchId.slice(0, 8)}... aún procesando en mails.so.`, 'warn')
+        addLog(`Batch ${batchId.slice(0, 8)}... poll #${attempts}/${MAX_POLL_ATTEMPTS} — aún procesando.`, 'info')
       }
+    }
+
+    if (!ready) {
+      addLog(`Batch ${batchId.slice(0, 8)}... abandonado tras ${attempts} intentos (timeout).`, 'warn')
     }
 
     setInFlight(prev => Math.max(0, prev - 1))
