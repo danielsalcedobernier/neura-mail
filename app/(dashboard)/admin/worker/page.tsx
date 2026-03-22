@@ -6,13 +6,15 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Play, Square, RefreshCw, Zap, Loader2, CheckCircle2 } from 'lucide-react'
+import { Square, RefreshCw, Zap, Loader2, CheckCircle2, Database, Send } from 'lucide-react'
 import useSWR from 'swr'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
 
-const CHUNK_SIZE   = 5000
-const POLL_INTERVAL_MS = 30_000 // wait 30s between mails.so polls
+const CACHE_BATCH_SIZE  = 1000   // items per cache-check request
+const MISS_QUEUE_LIMIT  = 5000   // trigger consumer when queue reaches this size
+const POLL_INTERVAL_MS  = 30_000 // wait between mails.so polls
+const MAX_CONSUMER_JOBS = 2      // max parallel mails.so batches in flight
 
 type Job = {
   id: string
@@ -27,6 +29,7 @@ type Job = {
 }
 
 type LogEntry = { time: string; msg: string; type: 'info' | 'ok' | 'error' | 'warn' }
+type MissItem = { id: string; email: string }
 
 function ts() {
   return new Date().toLocaleTimeString('es-CL', { hour12: false })
@@ -37,25 +40,27 @@ function sleep(ms: number) {
 }
 
 export default function WorkerPage() {
-  const { data: jobs, isLoading, mutate } = useSWR<Job[]>('/api/admin/worker/jobs', fetcher, { refreshInterval: 15000 })
+  const { data: jobs, isLoading, mutate } = useSWR<Job[]>('/api/admin/worker/jobs', fetcher, { refreshInterval: 10000 })
 
-  const [running, setRunning]       = useState(false)
-  const autoStarted = useRef(false)
-  const [log, setLog]               = useState<LogEntry[]>([])
-  const [activeJob, setActiveJob]   = useState<Job | null>(null)
-  const [phase, setPhase]           = useState<string>('')
-  const [written, setWritten]       = useState(0)
-  const [completed, setCompleted]   = useState(0)
-  const [total, setTotal]           = useState(0)
-  const [speed, setSpeed]           = useState(0)
-  const [startedAt, setStartedAt]   = useState<number | null>(null)
+  const [running, setRunning]     = useState(false)
+  const autoStarted               = useRef(false)
+  const [log, setLog]             = useState<LogEntry[]>([])
+  const [activeJob, setActiveJob] = useState<Job | null>(null)
+  const [phase, setPhase]         = useState<string>('')
+  const [cacheHits, setCacheHits] = useState(0)
+  const [mailssoHits, setMailssoHits] = useState(0)
+  const [queueSize, setQueueSize] = useState(0)
+  const [inFlight, setInFlight]   = useState(0)
+  const [total, setTotal]         = useState(0)
+  const [speed, setSpeed]         = useState(0)
+  const [startedAt, setStartedAt] = useState<number | null>(null)
 
   const stopRef    = useRef(false)
   const startRef   = useRef<(() => Promise<void>) | null>(null)
   const logBottom  = useRef<HTMLDivElement>(null)
 
   const addLog = useCallback((msg: string, type: LogEntry['type'] = 'info') => {
-    setLog(prev => [...prev.slice(-299), { time: ts(), msg, type }])
+    setLog(prev => [...prev.slice(-499), { time: ts(), msg, type }])
   }, [])
 
   useEffect(() => {
@@ -69,175 +74,171 @@ export default function WorkerPage() {
     addLog('Worker detenido por el usuario.', 'warn')
   }, [addLog])
 
-  // ── Core: process one job end-to-end ──────────────────────────────────────
+  // ── Consumer: handles one miss-batch end-to-end ──────────────────────────
+  const consumeBatch = useCallback(async (jobId: string, missItems: MissItem[]): Promise<number> => {
+    // Submit to mails.so
+    const submitRes = await fetch('/api/admin/worker/submit-mailsso', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId, action: 'submit', items: missItems }),
+    })
+    const submitData = await submitRes.json()
+    if (!submitRes.ok || !submitData.data?.batchId) {
+      addLog(`Error enviando batch a mails.so: ${submitData.error ?? submitRes.status}`, 'error')
+      return 0
+    }
+    const batchId = submitData.data.batchId
+    addLog(`Batch enviado a mails.so: ${missItems.length.toLocaleString('es-CL')} emails | id: ${batchId}`, 'ok')
+    setInFlight(prev => prev + 1)
+
+    // Poll until ready
+    let ready = false
+    let attempts = 0
+    while (!stopRef.current && !ready) {
+      attempts++
+      addLog(`Batch ${batchId.slice(0, 8)}... — poll #${attempts}, esperando ${POLL_INTERVAL_MS / 1000}s`, 'info')
+      await sleep(POLL_INTERVAL_MS)
+      if (stopRef.current) break
+
+      const pollRes = await fetch('/api/admin/worker/submit-mailsso', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, action: 'poll', batchId }),
+      })
+      const pollData = await pollRes.json()
+
+      if (pollData.data?.ready) {
+        const written = pollData.data.written ?? 0
+        addLog(`Batch ${batchId.slice(0, 8)}... listo. ${written.toLocaleString('es-CL')} emails escritos.`, 'ok')
+        setMailssoHits(prev => prev + written)
+        setInFlight(prev => Math.max(0, prev - 1))
+        ready = true
+        return written
+      } else {
+        addLog(`Batch ${batchId.slice(0, 8)}... aún procesando en mails.so.`, 'warn')
+      }
+    }
+
+    setInFlight(prev => Math.max(0, prev - 1))
+    return 0
+  }, [addLog])
+
+  // ── Core: process one job with producer/consumer pipeline ────────────────
   const processJob = useCallback(async (job: Job) => {
     addLog(`── Iniciando job: ${job.list_name} (${job.id.slice(0, 8)}...)`, 'info')
     setActiveJob(job)
-    setWritten(0)
+    setCacheHits(0)
+    setMailssoHits(0)
+    setQueueSize(0)
+    setInFlight(0)
     setTotal(Number(job.total_count))
-    setCompleted(Number(job.completed_count))
+    setStartedAt(Date.now())
 
-    const t0 = Date.now()
-    setStartedAt(t0)
+    const missQueue: MissItem[] = []
+    const consumerPromises: Promise<number>[] = []
 
-    // ── Fase 1: Procesar todos los chunks pending (cache + submit) ──────────
-    while (!stopRef.current) {
-      setPhase('Verificando en caché...')
-      addLog('Fase 1: Consultando caché y enviando a mails.so...', 'info')
+    // ── Producer loop: cache-check batch by batch ──────────────────────────
+    setPhase('Productor: verificando en caché...')
 
-      const submitRes = await fetch('/api/admin/worker/poll', {
+    let producerDone = false
+    while (!stopRef.current && !producerDone) {
+      const res = await fetch('/api/admin/worker/cache-check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: job.id, action: 'submit' }),
+        body: JSON.stringify({ jobId: job.id, batchSize: CACHE_BATCH_SIZE }),
       })
-      const submitData = await submitRes.json()
-
-      if (!submitRes.ok) {
-        addLog(`Error en submit: ${submitData.error ?? submitRes.status}`, 'error')
-        return
+      const data = await res.json()
+      if (!res.ok) {
+        addLog(`Error en cache-check: ${data.error ?? res.status}`, 'error')
+        break
       }
 
-      const { submitted, cacheHits, batchId, done, needsFinalize } = submitData.data ?? {}
+      const { done, cacheHits: hits, misses, remaining } = data.data ?? {}
 
-      if (cacheHits > 0) {
-        setCompleted(prev => prev + cacheHits)
-        addLog(`Cache hits: ${Number(cacheHits).toLocaleString('es-CL')} emails resueltos desde caché.`, 'ok')
-      }
-
-      if (done) {
-        // All pending items were cache hits — finalize via write-chunk (handles counters + status)
-        addLog('Todos los emails resueltos desde caché. Finalizando job...', 'ok')
-        setPhase('Finalizando...')
-        const finalRes = await fetch('/api/admin/worker/write-chunk', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jobId: job.id, offset: 0, limit: CHUNK_SIZE }),
+      if (hits > 0) {
+        setCacheHits(prev => {
+          const next = prev + hits
+          // update speed
+          const elapsed = (Date.now() - (startedAt ?? Date.now())) / 1000
+          if (elapsed > 0) setSpeed(Math.round(next / elapsed))
+          return next
         })
-        const finalData = await finalRes.json()
-        if (!finalRes.ok) {
-          addLog(`Error al finalizar: ${finalData.error ?? finalRes.status}`, 'error')
-        } else {
-          addLog('Job finalizado correctamente. Contadores actualizados.', 'ok')
-        }
-        await mutate()
-        break
+        addLog(`Cache: +${hits} hits (lote de ${CACHE_BATCH_SIZE})`, 'ok')
       }
 
-      if (submitted === 0 && !batchId) {
-        // No more pending items
-        addLog('No hay más items pendientes.', 'ok')
-        break
+      if (misses && misses.length > 0) {
+        missQueue.push(...misses)
+        setQueueSize(missQueue.length)
+        addLog(`Cola misses: ${missQueue.length} emails pendientes de mails.so`, 'info')
       }
 
-      addLog(`Batch enviado a mails.so: ${Number(submitted).toLocaleString('es-CL')} emails | batch_id: ${batchId}`, 'ok')
+      // Trigger consumer when queue is big enough and not too many in flight
+      while (missQueue.length >= MISS_QUEUE_LIMIT && consumerPromises.length < MAX_CONSUMER_JOBS && !stopRef.current) {
+        const batch = missQueue.splice(0, MISS_QUEUE_LIMIT)
+        setQueueSize(missQueue.length)
+        addLog(`Consumidor: enviando batch de ${batch.length} a mails.so...`, 'info')
+        consumerPromises.push(consumeBatch(job.id, batch))
+      }
 
-      // ── Fase 2: Esperar resultados de mails.so (poll cada 30s) ─────────────
+      if (done && !remaining) {
+        producerDone = true
+        addLog(`Productor terminado. Cola restante: ${missQueue.length} misses.`, 'ok')
+      }
+
+      // Small pause to avoid hammering DB
+      if (!done && !stopRef.current) await sleep(200)
+    }
+
+    // Flush remaining misses from queue (< MISS_QUEUE_LIMIT)
+    while (missQueue.length > 0 && !stopRef.current) {
+      const batch = missQueue.splice(0, MISS_QUEUE_LIMIT)
+      setQueueSize(missQueue.length)
+      addLog(`Consumidor: flushing ${batch.length} emails restantes a mails.so...`, 'info')
+      consumerPromises.push(consumeBatch(job.id, batch))
+    }
+
+    // Wait for all consumer batches to finish
+    if (consumerPromises.length > 0) {
       setPhase('Esperando resultados de mails.so...')
-      let resultsReady = false
-      let pollAttempts = 0
-
-      while (!stopRef.current && !resultsReady) {
-        pollAttempts++
-        addLog(`Poll #${pollAttempts}: consultando mails.so en ${POLL_INTERVAL_MS / 1000}s...`, 'info')
-        await sleep(POLL_INTERVAL_MS)
-        if (stopRef.current) break
-
-        const pollRes = await fetch('/api/admin/worker/poll', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jobId: job.id, action: 'poll' }),
-        })
-        const pollData = await pollRes.json()
-
-        if (!pollRes.ok) {
-          addLog(`Error en poll: ${pollData.error ?? pollRes.status}`, 'error')
-          return
-        }
-
-        if (pollData.data?.ready) {
-          const count = pollData.data?.count ?? 0
-          addLog(`Resultados listos: ${Number(count).toLocaleString('es-CL')} registros recibidos de mails.so.`, 'ok')
-          resultsReady = true
-        } else {
-          addLog(`Batch aún procesando en mails.so. Reintentando en ${POLL_INTERVAL_MS / 1000}s...`, 'warn')
-        }
-      }
-
-      if (!resultsReady || stopRef.current) break
-
-      // ── Fase 3: Escribir resultados en chunks ─────────────────────────────
-      setPhase('Escribiendo resultados...')
-      addLog('Fase 3: Escribiendo resultados en chunks de 5.000...', 'info')
-
-      let offset     = 0
-      let chunkCount = 0
-
-      while (!stopRef.current) {
-        const chunkRes = await fetch('/api/admin/worker/write-chunk', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jobId: job.id, offset, limit: CHUNK_SIZE }),
-        })
-        const chunkData = await chunkRes.json()
-
-        if (!chunkRes.ok) {
-          addLog(`Error en chunk offset=${offset}: ${chunkData.error ?? chunkRes.status}`, 'error')
-          break
-        }
-
-        const { written: w, done: chunkDone, batchDone } = chunkData.data ?? {}
-        chunkCount++
-        const rowsWritten = w ?? 0
-        offset += CHUNK_SIZE
-
-        setWritten(prev => prev + rowsWritten)
-        setCompleted(prev => prev + rowsWritten)
-
-        const elapsed = (Date.now() - t0) / 1000
-        const totalWritten = written + rowsWritten
-        const rps = elapsed > 0 ? Math.round(totalWritten / elapsed) : 0
-        setSpeed(rps)
-
-        addLog(
-          `Chunk ${chunkCount} (offset=${offset - CHUNK_SIZE}): ${rowsWritten} filas escritas | ${rps}/s`,
-          rowsWritten > 0 ? 'ok' : 'info'
-        )
-
-        if (batchDone || rowsWritten === 0) {
-          addLog(`Batch escrito completamente. ${chunkCount} chunks procesados.`, 'ok')
-          break
-        }
-      }
-
-      // After writing this batch, loop back to check for more pending items
-      if (!stopRef.current) {
-        addLog('Verificando si quedan items pendientes...', 'info')
-        // Small pause to not hammer the DB
-        await sleep(1000)
-      }
+      addLog(`Esperando ${consumerPromises.length} batch(es) de mails.so...`, 'info')
+      await Promise.all(consumerPromises)
     }
 
-    if (!stopRef.current) {
-      addLog(`Job "${job.list_name}" completado.`, 'ok')
+    // Finalize job (update counters + status = completed)
+    setPhase('Finalizando job...')
+    addLog('Finalizando job y actualizando contadores...', 'info')
+    const finalRes = await fetch('/api/admin/worker/write-chunk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId: job.id, offset: 0, limit: 5000 }),
+    })
+    const finalData = await finalRes.json()
+    if (!finalRes.ok) {
+      addLog(`Error al finalizar: ${finalData.error ?? finalRes.status}`, 'error')
+    } else {
+      addLog(`Job "${job.list_name}" finalizado. Contadores actualizados.`, 'ok')
     }
+
     await mutate()
-  }, [addLog, written, mutate])
+    setActiveJob(null)
+    setPhase('')
+  }, [addLog, consumeBatch, mutate, startedAt])
 
   const start = useCallback(async () => {
     const pendingJobs = jobs?.filter(j => j.status !== 'completed') ?? []
     if (pendingJobs.length === 0) {
-      addLog('No hay jobs activos (queued/running) para procesar.', 'warn')
+      addLog('No hay jobs activos para procesar.', 'warn')
       return
     }
     stopRef.current = false
     setRunning(true)
     setLog([])
     addLog(`Worker iniciado. ${pendingJobs.length} job(s) en cola.`, 'info')
+    addLog(`Pipeline: productor (cache ${CACHE_BATCH_SIZE}/lote) + consumidor (mails.so ${MISS_QUEUE_LIMIT}/batch, max ${MAX_CONSUMER_JOBS} en paralelo)`, 'info')
 
     for (const job of pendingJobs) {
       if (stopRef.current) break
       await processJob(job)
-      await mutate()
     }
 
     if (!stopRef.current) {
@@ -245,13 +246,12 @@ export default function WorkerPage() {
       setRunning(false)
       setPhase('')
     }
-    setActiveJob(null)
-  }, [jobs, processJob, addLog, mutate])
+  }, [jobs, processJob, addLog])
 
-  // Keep ref in sync — must be after `start` is declared
+  // Keep ref in sync (avoids TDZ in auto-start effect)
   useEffect(() => { startRef.current = start }, [start])
 
-  // Auto-start when jobs load and there are pending jobs
+  // Auto-start on load if there are pending jobs
   useEffect(() => {
     if (!autoStarted.current && !isLoading && jobs && !running && startRef.current) {
       const pending = jobs.filter(j => j.status !== 'completed')
@@ -262,12 +262,11 @@ export default function WorkerPage() {
     }
   }, [jobs, isLoading, running])
 
-  const progress = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0
-  const eta = speed > 0 && total > completed
-    ? Math.round((total - completed) / speed)
-    : null
+  const completed   = cacheHits + mailssoHits
+  const progress    = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0
+  const eta         = speed > 0 && total > completed ? Math.round((total - completed) / speed) : null
 
-  const pendingJobs  = jobs?.filter(j => j.status !== 'completed') ?? []
+  const pendingJobs   = jobs?.filter(j => j.status !== 'completed') ?? []
   const completedJobs = jobs?.filter(j => j.status === 'completed') ?? []
 
   return (
@@ -277,7 +276,7 @@ export default function WorkerPage() {
         <div>
           <h1 className="text-2xl font-bold">Worker de Verificación</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Corre en el navegador. Hace cache check, envío a mails.so, polling y escritura — sin límite de tiempo.
+            Pipeline productor/consumidor — caché en paralelo con envío a mails.so.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -292,24 +291,30 @@ export default function WorkerPage() {
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Stats grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">Jobs pendientes</p>
-            <p className="text-3xl font-bold mt-1">{pendingJobs.length}</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+              <Database className="w-3 h-3" /> Cache hits
+            </p>
+            <p className="text-3xl font-bold mt-1">{cacheHits > 0 ? cacheHits.toLocaleString('es-CL') : (running ? '…' : '—')}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">Fase actual</p>
-            <p className="text-sm font-medium mt-1 truncate">{phase || (running ? 'Iniciando...' : '—')}</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+              <Send className="w-3 h-3" /> Mails.so
+            </p>
+            <p className="text-3xl font-bold mt-1">{mailssoHits > 0 ? mailssoHits.toLocaleString('es-CL') : (running ? '…' : '—')}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">Velocidad</p>
-            <p className="text-3xl font-bold mt-1">{speed > 0 ? `${speed.toLocaleString('es-CL')}/s` : '—'}</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">Cola / En vuelo</p>
+            <p className="text-3xl font-bold mt-1">
+              {running ? `${queueSize.toLocaleString('es-CL')} / ${inFlight}` : '—'}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -322,7 +327,7 @@ export default function WorkerPage() {
         </Card>
       </div>
 
-      {/* Active job progress */}
+      {/* Active job */}
       {activeJob && (
         <Card>
           <CardHeader className="pb-2">
@@ -330,13 +335,16 @@ export default function WorkerPage() {
               <Loader2 className="w-4 h-4 animate-spin" />
               {activeJob.list_name}
               <span className="text-muted-foreground font-normal text-sm">
-                {completed.toLocaleString('es-CL')} / {total.toLocaleString('es-CL')} emails
+                {phase}
               </span>
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-2">
             <Progress value={progress} className="h-3" />
-            <p className="text-xs text-muted-foreground mt-1">{progress}% completado</p>
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>{completed.toLocaleString('es-CL')} / {total.toLocaleString('es-CL')} emails</span>
+              <span>{progress}%</span>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -358,8 +366,7 @@ export default function WorkerPage() {
                   <div className="divide-y">
                     {pendingJobs.map(job => {
                       const pct = Number(job.total_count) > 0
-                        ? Math.round((Number(job.completed_count) / Number(job.total_count)) * 100)
-                        : 0
+                        ? Math.round((Number(job.completed_count) / Number(job.total_count)) * 100) : 0
                       return (
                         <div key={job.id} className="py-3 space-y-1.5">
                           <div className="flex items-center justify-between">
@@ -367,7 +374,6 @@ export default function WorkerPage() {
                               <p className="font-medium text-sm">{job.list_name}</p>
                               <p className="text-xs text-muted-foreground">
                                 {Number(job.completed_count).toLocaleString('es-CL')} / {Number(job.total_count).toLocaleString('es-CL')} completados
-                                {job.mailsso_batch_id && <span className="ml-2 text-blue-500">· batch activo en mails.so</span>}
                               </p>
                             </div>
                             <Badge variant={job.status === 'running' ? 'default' : 'secondary'} className="text-xs">
