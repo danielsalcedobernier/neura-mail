@@ -105,39 +105,21 @@ export default function WorkerPage() {
       }
 
       if (done) {
-        // All pending items were cache hits — still need to finalize the job via write-chunk
+        // All pending items were cache hits — finalize via write-chunk (handles counters + status)
         addLog('Todos los emails resueltos desde caché. Finalizando job...', 'ok')
-        if (needsFinalize) {
-          setPhase('Escribiendo resultados desde caché...')
-          addLog('Escribiendo resultados en chunks de 5.000...', 'info')
-          let offset = 0
-          let chunkCount = 0
-          while (!stopRef.current) {
-            const chunkRes = await fetch('/api/admin/worker/write-chunk', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ jobId: job.id, offset, limit: CHUNK_SIZE }),
-            })
-            const chunkData = await chunkRes.json()
-            if (!chunkRes.ok) {
-              addLog(`Error en chunk offset=${offset}: ${chunkData.error ?? chunkRes.status}`, 'error')
-              break
-            }
-            const { written: w = 0, done: chunkDone, batchDone } = chunkData.data ?? {}
-            chunkCount++
-            setWritten(prev => prev + w)
-            setCompleted(prev => prev + w)
-            const elapsed = (Date.now() - t0) / 1000
-            const rps = elapsed > 0 ? Math.round((written + w) / elapsed) : 0
-            setSpeed(rps)
-            addLog(`Chunk ${chunkCount} (offset=${offset}): ${w} filas escritas`, w > 0 ? 'ok' : 'info')
-            offset += CHUNK_SIZE
-            if (batchDone || chunkDone || w === 0) {
-              addLog(`Job finalizado. ${chunkCount} chunks procesados.`, 'ok')
-              break
-            }
-          }
+        setPhase('Finalizando...')
+        const finalRes = await fetch('/api/admin/worker/write-chunk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jobId: job.id, offset: 0, limit: CHUNK_SIZE }),
+        })
+        const finalData = await finalRes.json()
+        if (!finalRes.ok) {
+          addLog(`Error al finalizar: ${finalData.error ?? finalRes.status}`, 'error')
+        } else {
+          addLog('Job finalizado correctamente. Contadores actualizados.', 'ok')
         }
+        await mutate()
         break
       }
 
@@ -238,7 +220,8 @@ export default function WorkerPage() {
     if (!stopRef.current) {
       addLog(`Job "${job.list_name}" completado.`, 'ok')
     }
-  }, [addLog, written])
+    await mutate()
+  }, [addLog, written, mutate])
 
   const start = useCallback(async () => {
     const pendingJobs = jobs?.filter(j => j.status !== 'completed') ?? []
