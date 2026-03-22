@@ -19,12 +19,11 @@ export async function POST(req: NextRequest) {
       FROM verification_jobs WHERE id = ${jobId}
     `
     if (!jobRow[0]) return ok({ error: 'job not found', written: 0, done: false })
-    if (!jobRow[0].mailsso_batch_result) return ok({ error: 'no results stored yet', written: 0, done: false })
 
-    const results = jobRow[0].mailsso_batch_result as Array<{ email: string; status: string }>
+    const results = (jobRow[0].mailsso_batch_result ?? []) as Array<{ email: string; status: string }>
     const resultMap = new Map(results.map(r => [r.email.toLowerCase(), r.status]))
 
-    // Fetch next chunk of processing items
+    // Fetch next chunk of processing items (items sent to mails.so)
     const items = await sql`
       SELECT id, email FROM verification_job_items
       WHERE job_id = ${jobId} AND status = 'processing'
@@ -33,22 +32,22 @@ export async function POST(req: NextRequest) {
     `
 
     if (items.length === 0) {
-      // Check if there are still pending items to process
+      // Check if there are still pending/processing items
       const pending = await sql`SELECT COUNT(*) AS c FROM verification_job_items WHERE job_id = ${jobId} AND status = 'pending'`
       const processing = await sql`SELECT COUNT(*) AS c FROM verification_job_items WHERE job_id = ${jobId} AND status = 'processing'`
       const isDone = Number(pending[0].c) === 0 && Number(processing[0].c) === 0
 
       if (isDone) {
-        // Finalize the job
+        // Finalize the job — works whether results came from cache or mails.so
         await finalizeJob(jobId, jobRow[0].user_id as string)
-        // Store to cache
-        try {
-          for (let i = 0; i < results.length; i += 2000) {
-            await storeBatchInCache(results.slice(i, i + 2000) as Parameters<typeof storeBatchInCache>[0], jobRow[0].user_id as string)
-          }
-        } catch { /* non-critical */ }
-        // Clear stored results
-        await sql`UPDATE verification_jobs SET mailsso_batch_result = NULL WHERE id = ${jobId}`
+        if (results.length > 0) {
+          try {
+            for (let i = 0; i < results.length; i += 2000) {
+              await storeBatchInCache(results.slice(i, i + 2000) as Parameters<typeof storeBatchInCache>[0], jobRow[0].user_id as string)
+            }
+          } catch { /* non-critical */ }
+          await sql`UPDATE verification_jobs SET mailsso_batch_result = NULL WHERE id = ${jobId}`
+        }
       }
 
       return ok({ written: 0, done: isDone, batchDone: isDone })
