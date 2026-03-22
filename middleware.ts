@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { SPANISH_COUNTRIES } from '@/i18n/translations'
+import { getSessionFromRequest } from '@/lib/auth'
 
 // Marketing routes that support i18n
 const MARKETING_PATHS = ['/', '/features', '/pricing', '/docs']
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
+
+  // Workers can only access /admin/worker — redirect all other /admin/* routes
+  if (pathname.startsWith('/admin') && !pathname.startsWith('/admin/worker')) {
+    const session = await getSessionFromRequest(req)
+    if (session?.role === 'worker') {
+      return NextResponse.redirect(new URL('/admin/worker', req.url))
+    }
+  }
 
   // Skip non-marketing routes
   const isMarketing = MARKETING_PATHS.some(
@@ -33,6 +42,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Only intercept the root marketing paths (no /en/* — those are already language-prefixed)
-  matcher: ['/', '/features', '/pricing', '/docs'],
+  matcher: ['/', '/features', '/pricing', '/docs', '/admin/:path*'],
 }

@@ -1,9 +1,9 @@
-import { requireAdmin } from '@/lib/auth'
+import { requireWorkerOrAdmin } from '@/lib/auth'
 import { ok, forbidden, serverError } from '@/lib/api'
 import sql from '@/lib/db'
 
 export async function GET() {
-  try { await requireAdmin() } catch { return forbidden() }
+  try { await requireWorkerOrAdmin() } catch { return forbidden() }
   try {
     const jobs = await sql`
       SELECT

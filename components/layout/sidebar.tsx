@@ -52,8 +52,12 @@ const adminNav: NavItem[] = [
   { label: 'Settings', href: '/admin/settings', icon: Settings },
 ]
 
+const workerNav: NavItem[] = [
+  { label: 'Worker Verif.', href: '/admin/worker', icon: Activity },
+]
+
 interface SidebarProps {
-  role: 'admin' | 'client'
+  role: 'admin' | 'client' | 'worker'
   userName?: string
   userEmail?: string
 }
@@ -62,7 +66,7 @@ export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
-  const nav = role === 'admin' ? adminNav : clientNav
+  const nav = role === 'admin' ? adminNav : role === 'worker' ? workerNav : clientNav
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -90,9 +94,11 @@ export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
         <div className="px-4 pt-4 pb-2">
           <span className={cn(
             'text-xs font-medium px-2 py-0.5 rounded-full',
-            role === 'admin' ? 'bg-primary/20 text-primary' : 'bg-sidebar-accent text-sidebar-accent-foreground'
+            role === 'admin' ? 'bg-primary/20 text-primary' :
+            role === 'worker' ? 'bg-orange-500/20 text-orange-600' :
+            'bg-sidebar-accent text-sidebar-accent-foreground'
           )}>
-            {role === 'admin' ? 'Panel Admin' : 'Mi cuenta'}
+            {role === 'admin' ? 'Panel Admin' : role === 'worker' ? 'Worker' : 'Mi cuenta'}
           </span>
         </div>
       )}
