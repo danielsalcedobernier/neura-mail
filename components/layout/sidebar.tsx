@@ -43,6 +43,7 @@ const adminNav: NavItem[] = [
   { label: 'Divisor de BBDD', href: '/admin/db-splitter', icon: Database },
   { label: 'Importar Caché', href: '/admin/cache-import', icon: Database },
   { label: 'Batch → Caché', href: '/admin/cache-batch', icon: Database },
+  { label: 'Listas', href: '/admin/lists', icon: FileText },
   { label: 'Campaigns', href: '/admin/campaigns', icon: Send },
   { label: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
   { label: 'Notifications', href: '/admin/notifications', icon: Bell },
