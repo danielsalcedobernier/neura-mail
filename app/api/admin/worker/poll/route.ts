@@ -70,7 +70,13 @@ export async function POST(req: NextRequest) {
       }
 
       if (misses.length === 0) {
-        return ok({ submitted: 0, cacheHits: hits.length, done: false })
+        // All resolved from cache — check if any items remain pending
+        const remaining = await sql`
+          SELECT COUNT(*) AS c FROM verification_job_items
+          WHERE job_id = ${jobId} AND status = 'pending'
+        `
+        const allDone = Number(remaining[0].c) === 0
+        return ok({ submitted: 0, cacheHits: hits.length, done: allDone, needsFinalize: allDone })
       }
 
       // Mark misses as processing and submit
