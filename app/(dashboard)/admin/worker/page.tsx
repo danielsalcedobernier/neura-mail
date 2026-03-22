@@ -40,6 +40,7 @@ export default function WorkerPage() {
   const { data: jobs, isLoading, mutate } = useSWR<Job[]>('/api/admin/worker/jobs', fetcher, { refreshInterval: 15000 })
 
   const [running, setRunning]       = useState(false)
+  const autoStarted = useRef(false)
   const [log, setLog]               = useState<LogEntry[]>([])
   const [activeJob, setActiveJob]   = useState<Job | null>(null)
   const [phase, setPhase]           = useState<string>('')
@@ -59,6 +60,17 @@ export default function WorkerPage() {
   useEffect(() => {
     logBottom.current?.scrollIntoView({ behavior: 'smooth' })
   }, [log])
+
+  // Auto-start when jobs load and there are pending jobs
+  useEffect(() => {
+    if (!autoStarted.current && !isLoading && jobs && !running) {
+      const pending = jobs.filter(j => j.status !== 'completed')
+      if (pending.length > 0) {
+        autoStarted.current = true
+        start()
+      }
+    }
+  }, [jobs, isLoading, running, start])
 
   const stop = useCallback(() => {
     stopRef.current = true
