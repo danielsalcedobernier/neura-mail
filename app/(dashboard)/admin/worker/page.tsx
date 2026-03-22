@@ -11,8 +11,8 @@ import useSWR from 'swr'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
 
-const CACHE_BATCH_SIZE  = 1000   // items per cache-check request
-const MISS_QUEUE_LIMIT  = 5000   // trigger consumer when queue reaches this size
+const CACHE_BATCH_SIZE  = 10_000  // items per cache-check request
+const MISS_QUEUE_LIMIT  = 10_000  // trigger consumer when queue reaches this size
 const POLL_INTERVAL_MS  = 30_000 // wait between mails.so polls
 const MAX_CONSUMER_JOBS = 2      // max parallel mails.so batches in flight
 

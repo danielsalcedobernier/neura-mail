@@ -13,7 +13,7 @@ export const maxDuration = 30
 export async function POST(req: NextRequest) {
   try { await requireWorkerOrAdmin() } catch { return forbidden() }
   try {
-    const { jobId, batchSize = 1000 } = await req.json() as { jobId: string; batchSize?: number }
+    const { jobId, batchSize = 10000 } = await req.json() as { jobId: string; batchSize?: number }
 
     // Fetch next pending batch
     const items = await sql`
