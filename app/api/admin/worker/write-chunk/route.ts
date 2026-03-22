@@ -90,32 +90,73 @@ export async function POST(req: NextRequest) {
 }
 
 async function finalizeJob(jobId: string, userId: string) {
-  const stats = await sql`
-    SELECT
-      COUNT(*) FILTER (WHERE result = 'valid')     AS valid,
-      COUNT(*) FILTER (WHERE result = 'invalid')   AS invalid,
-      COUNT(*) FILTER (WHERE result = 'risky')     AS risky,
-      COUNT(*) FILTER (WHERE result = 'unknown')   AS unknown,
-      COUNT(*) FILTER (WHERE result = 'catch_all') AS catch_all,
-      COUNT(*) FILTER (WHERE from_cache = true)    AS cache_hits,
-      COALESCE(SUM(credits_charged), 0)            AS credits_used
-    FROM verification_job_items WHERE job_id = ${jobId}
-  `
-  const s = stats[0]
+  const listRow = await sql`SELECT list_id FROM verification_jobs WHERE id = ${jobId}`
+  const listId = listRow[0]?.list_id
+
+  // Try counting from verification_job_items first (mails.so flow)
+  const itemCount = await sql`SELECT COUNT(*) AS c FROM verification_job_items WHERE job_id = ${jobId}`
+  const hasItems = Number(itemCount[0].c) > 0
+
+  let valid = 0, invalid = 0, risky = 0, unknown = 0, catch_all = 0, cache_hits = 0, credits_used = 0
+
+  if (hasItems) {
+    // Normal mails.so flow — count from job items
+    const stats = await sql`
+      SELECT
+        COUNT(*) FILTER (WHERE result = 'valid')     AS valid,
+        COUNT(*) FILTER (WHERE result = 'invalid')   AS invalid,
+        COUNT(*) FILTER (WHERE result = 'risky')     AS risky,
+        COUNT(*) FILTER (WHERE result = 'unknown')   AS unknown,
+        COUNT(*) FILTER (WHERE result = 'catch_all') AS catch_all,
+        COUNT(*) FILTER (WHERE from_cache = true)    AS cache_hits,
+        COALESCE(SUM(credits_charged), 0)            AS credits_used
+      FROM verification_job_items WHERE job_id = ${jobId}
+    `
+    const s = stats[0]
+    valid       = Number(s.valid)
+    invalid     = Number(s.invalid)
+    risky       = Number(s.risky)
+    unknown     = Number(s.unknown)
+    catch_all   = Number(s.catch_all)
+    cache_hits  = Number(s.cache_hits)
+    credits_used = Number(s.credits_used)
+  } else if (listId) {
+    // All-cache flow — count directly from email_list_contacts (already updated by poll/submit)
+    const stats = await sql`
+      SELECT
+        COUNT(*) FILTER (WHERE verification_status = 'valid')     AS valid,
+        COUNT(*) FILTER (WHERE verification_status = 'invalid')   AS invalid,
+        COUNT(*) FILTER (WHERE verification_status = 'risky')     AS risky,
+        COUNT(*) FILTER (WHERE verification_status = 'unknown')   AS unknown,
+        COUNT(*) FILTER (WHERE verification_status = 'catch_all') AS catch_all,
+        COUNT(*)                                                   AS total
+      FROM email_list_contacts WHERE list_id = ${listId}
+        AND verification_status IS NOT NULL
+        AND verification_status != 'unverified'
+    `
+    const s = stats[0]
+    valid      = Number(s.valid)
+    invalid    = Number(s.invalid)
+    risky      = Number(s.risky)
+    unknown    = Number(s.unknown)
+    catch_all  = Number(s.catch_all)
+    cache_hits = Number(s.total) // all from cache
+    credits_used = 0             // cache hits are free
+  }
+
   await sql`
     UPDATE verification_jobs SET
       status = 'completed', completed_at = NOW(),
-      valid_count    = ${Number(s.valid)},
-      invalid_count  = ${Number(s.invalid)},
-      risky_count    = ${Number(s.risky)},
-      unknown_count  = ${Number(s.unknown)},
-      catch_all_count = ${Number(s.catch_all)},
-      cache_hit_count = ${Number(s.cache_hits)},
-      credits_used   = ${Number(s.credits_used)}
+      valid_count     = ${valid},
+      invalid_count   = ${invalid},
+      risky_count     = ${risky},
+      unknown_count   = ${unknown},
+      catch_all_count = ${catch_all},
+      cache_hit_count = ${cache_hits},
+      credits_used    = ${credits_used}
     WHERE id = ${jobId}
   `
-  const listRow = await sql`SELECT list_id FROM verification_jobs WHERE id = ${jobId}`
-  const listId  = listRow[0]?.list_id
+
   if (listId) {
     await sql`
       UPDATE email_lists SET
@@ -126,8 +167,11 @@ async function finalizeJob(jobId: string, userId: string) {
       WHERE id = ${listId}
     `
   }
-  // Refund unused credits
-  const unprocessed = await sql`SELECT COUNT(*) AS c FROM verification_job_items WHERE job_id = ${jobId} AND status != 'completed'`
-  const refund = Number(unprocessed[0].c)
-  if (refund > 0) await sql`UPDATE user_credits SET balance = balance + ${refund}, updated_at = NOW() WHERE user_id = ${userId}`
+
+  // Refund unused credits (only relevant for mails.so flow)
+  if (hasItems) {
+    const unprocessed = await sql`SELECT COUNT(*) AS c FROM verification_job_items WHERE job_id = ${jobId} AND status != 'completed'`
+    const refund = Number(unprocessed[0].c)
+    if (refund > 0) await sql`UPDATE user_credits SET balance = balance + ${refund}, updated_at = NOW() WHERE user_id = ${userId}`
+  }
 }
