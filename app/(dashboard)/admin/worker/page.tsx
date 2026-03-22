@@ -270,11 +270,7 @@ export default function WorkerPage() {
           <Button variant="outline" size="sm" onClick={() => mutate()} disabled={running}>
             <RefreshCw className="w-4 h-4 mr-1.5" /> Actualizar
           </Button>
-          {!running ? (
-            <Button onClick={start} disabled={isLoading || pendingJobs.length === 0}>
-              <Play className="w-4 h-4 mr-1.5" /> Iniciar worker
-            </Button>
-          ) : (
+          {running && (
             <Button variant="destructive" onClick={stop}>
               <Square className="w-4 h-4 mr-1.5" /> Detener
             </Button>
