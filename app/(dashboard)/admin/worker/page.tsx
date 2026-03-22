@@ -97,7 +97,7 @@ export default function WorkerPage() {
         return
       }
 
-      const { submitted, cacheHits, batchId, done } = submitData.data ?? {}
+      const { submitted, cacheHits, batchId, done, needsFinalize } = submitData.data ?? {}
 
       if (cacheHits > 0) {
         setCompleted(prev => prev + cacheHits)
@@ -105,8 +105,20 @@ export default function WorkerPage() {
       }
 
       if (done) {
-        // All remaining pending items were cache hits — nothing to submit
-        addLog('Todos los emails resueltos desde caché. No se necesita mails.so.', 'ok')
+        // All pending items were cache hits — still need to finalize the job via write-chunk
+        addLog('Todos los emails resueltos desde caché. Finalizando job...', 'ok')
+        if (needsFinalize) {
+          setPhase('Finalizando job...')
+          const finalRes = await fetch('/api/admin/worker/write-chunk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jobId: job.id, offset: 0, limit: CHUNK_SIZE }),
+          })
+          const finalData = await finalRes.json()
+          if (finalData.data?.done) {
+            addLog('Job finalizado y contadores actualizados.', 'ok')
+          }
+        }
         break
       }
 
