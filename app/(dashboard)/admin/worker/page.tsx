@@ -136,6 +136,7 @@ export default function WorkerPage() {
 
     const missQueue: MissItem[] = []
     const consumerPromises: Promise<number>[] = []
+    const jobStartedAt = Date.now()
 
     // ── Producer loop: cache-check batch by batch ──────────────────────────
     setPhase('Productor: verificando en caché...')
@@ -158,8 +159,7 @@ export default function WorkerPage() {
       if (hits > 0) {
         setCacheHits(prev => {
           const next = prev + hits
-          // update speed
-          const elapsed = (Date.now() - (startedAt ?? Date.now())) / 1000
+          const elapsed = (Date.now() - jobStartedAt) / 1000
           if (elapsed > 0) setSpeed(Math.round(next / elapsed))
           return next
         })
