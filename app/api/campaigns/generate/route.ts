@@ -55,11 +55,12 @@ export async function POST(request: NextRequest) {
     if (!parsed.success) return error('Invalid input', 422)
 
     const { prompt, tone, subject } = parsed.data
-    // Use language from request, fallback to browser Accept-Language, fallback to 'es'
+
+    // Language: explicit from body takes priority, then Accept-Language header, then 'es'
     const acceptLang = request.headers.get('accept-language') || ''
-    const detectedLang = parsed.data.language !== 'es'
-      ? parsed.data.language
-      : (acceptLang.split(',')[0]?.split('-')[0]?.toLowerCase() || 'es')
+    const headerLang = acceptLang.split(',')[0]?.split('-')[0]?.toLowerCase() || 'es'
+    // parsed.data.language comes from the client (navigator.language) — always trust it
+    const detectedLang = parsed.data.language || headerLang || 'es'
 
     const { cleanPrompt, webContent } = await extractUrlContent(prompt)
 
@@ -78,31 +79,33 @@ export async function POST(request: NextRequest) {
     }
 
     const langNames: Record<string, string> = {
-      es: 'Spanish', en: 'English', pt: 'Portuguese', fr: 'French',
-      de: 'German', it: 'Italian', nl: 'Dutch',
+      es: 'español', en: 'English', pt: 'português', fr: 'français',
+      de: 'Deutsch', it: 'italiano', nl: 'Nederlands',
     }
     const langName = langNames[detectedLang] || detectedLang
 
-    const systemPrompt = `You are an expert email copywriter. Write compelling, ${tone} email campaigns.
+    const systemPrompt = `Eres un experto en email marketing. Escribe campañas de email persuasivas y con buen diseño.
 
-IMPORTANT: You MUST respond in ${langName} (language code: ${detectedLang}). ALL text (subject, body, CTAs) must be in ${langName}.
+⚠️ REGLA ABSOLUTA: Debes responder ÚNICAMENTE en ${langName} (código: ${detectedLang}). 
+Todo el contenido —asunto, cuerpo, botones, pie de página— debe estar en ${langName}.
+NO uses ningún otro idioma bajo ninguna circunstancia.
 
-Return a JSON object with exactly these fields:
-- subject: string (email subject line, max 70 chars, in ${langName})
-- previewText: string (preview snippet, max 140 chars, in ${langName})
-- htmlContent: string (full HTML email with inline styles — see requirements below)
-- textContent: string (plain text version, in ${langName})
+Retorna un objeto JSON con exactamente estos campos:
+- subject: string (asunto del email, máx 70 caracteres, en ${langName})
+- previewText: string (texto de preview/snippet, máx 140 caracteres, en ${langName})
+- htmlContent: string (HTML completo del email con estilos inline — ver requisitos abajo)
+- textContent: string (versión en texto plano, en ${langName})
 
-HTML EMAIL REQUIREMENTS:
-- Use a single-column layout, max-width 600px, centered
-- Include a header section with background color and logo placeholder
-- Use a clear hierarchy: headline → body text → CTA button
-- CTA button must use inline styles: background-color, color, padding, border-radius, text-decoration:none, display:inline-block
-- Use web-safe fonts (Arial, Georgia) with proper line-height
-- Include a footer with unsubscribe placeholder: <a href="{{unsubscribe_url}}">Unsubscribe</a>
-- All styles must be inline (no <style> tags) for email client compatibility
-- Use {{first_name}} placeholder for personalization
-- Make it visually appealing with proper spacing and colors relevant to the campaign tone`
+REQUISITOS DEL HTML:
+- Layout de una columna, max-width 600px, centrado
+- Header con fondo de color sólido y titular grande
+- Jerarquía clara: titular → cuerpo → botón CTA
+- Botón CTA con estilos inline: background-color, color, padding, border-radius, text-decoration:none, display:inline-block
+- Fuentes web-safe (Arial, Georgia) con line-height apropiado
+- Footer con placeholder de baja: <a href="{{unsubscribe_url}}">Cancelar suscripción</a>
+- TODOS los estilos deben ser inline (sin etiquetas <style>) para compatibilidad con clientes de email
+- Usa {{first_name}} para personalización
+- Diseño visualmente atractivo con espaciado generoso y colores apropiados para el tono ${tone}`
 
     const userParts: string[] = []
     if (webContent) {
