@@ -137,6 +137,8 @@ export default function WorkerPage() {
     const missQueue: MissItem[] = []
     const consumerPromises: Promise<number>[] = []
     const jobStartedAt = Date.now()
+    const FLUSH_INTERVAL_MS = 5 * 60 * 1000 // flush queue every 5 minutes regardless of size
+    let lastFlushAt = Date.now()
 
     // ── Producer loop: cache-check batch by batch ──────────────────────────
     setPhase('Productor: verificando en caché...')
@@ -172,12 +174,22 @@ export default function WorkerPage() {
         addLog(`Cola misses: ${missQueue.length} emails pendientes de mails.so`, 'info')
       }
 
-      // Trigger consumer when queue is big enough and not too many in flight
-      while (missQueue.length >= MISS_QUEUE_LIMIT && consumerPromises.length < MAX_CONSUMER_JOBS && !stopRef.current) {
+      const timeSinceFlush = Date.now() - lastFlushAt
+      const shouldTimerFlush = timeSinceFlush >= FLUSH_INTERVAL_MS && missQueue.length > 0
+
+      // Trigger consumer when queue hits limit OR timer flush (every 5 min)
+      while (
+        (missQueue.length >= MISS_QUEUE_LIMIT || shouldTimerFlush) &&
+        consumerPromises.length < MAX_CONSUMER_JOBS &&
+        missQueue.length > 0 &&
+        !stopRef.current
+      ) {
         const batch = missQueue.splice(0, MISS_QUEUE_LIMIT)
         setQueueSize(missQueue.length)
-        addLog(`Consumidor: enviando batch de ${batch.length} a mails.so...`, 'info')
+        const reason = shouldTimerFlush ? 'flush 5min' : `${batch.length} misses`
+        addLog(`Consumidor: enviando batch de ${batch.length} a mails.so (${reason})...`, 'info')
         consumerPromises.push(consumeBatch(job.id, batch))
+        lastFlushAt = Date.now()
       }
 
       if (done && !remaining) {
