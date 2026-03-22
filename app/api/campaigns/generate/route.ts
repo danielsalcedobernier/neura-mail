@@ -108,11 +108,12 @@ REQUISITOS DEL HTML:
 - Diseño visualmente atractivo con espaciado generoso y colores apropiados para el tono ${tone}`
 
     const userParts: string[] = []
+    userParts.push(`IMPORTANTE: Tu respuesta debe estar completamente en ${langName}. Todo el contenido del email debe estar en ${langName}.`)
     if (webContent) {
-      userParts.push(`I want to create a campaign based on this website content:\n\n${webContent}`)
+      userParts.push(`Quiero crear una campaña basada en el contenido de este sitio web:\n\n${webContent}`)
     }
-    userParts.push(cleanPrompt || 'Create a compelling email campaign based on the website content above.')
-    if (subject) userParts.push(`Desired subject line: ${subject}`)
+    userParts.push(cleanPrompt || 'Crea una campaña de email atractiva basada en el contenido del sitio web de arriba.')
+    if (subject) userParts.push(`Asunto deseado: ${subject}`)
 
     const userPrompt = userParts.join('\n\n')
 
