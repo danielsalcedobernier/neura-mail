@@ -50,8 +50,9 @@ export default function WorkerPage() {
   const [speed, setSpeed]           = useState(0)
   const [startedAt, setStartedAt]   = useState<number | null>(null)
 
-  const stopRef   = useRef(false)
-  const logBottom = useRef<HTMLDivElement>(null)
+  const stopRef    = useRef(false)
+  const startRef   = useRef<(() => Promise<void>) | null>(null)
+  const logBottom  = useRef<HTMLDivElement>(null)
 
   const addLog = useCallback((msg: string, type: LogEntry['type'] = 'info') => {
     setLog(prev => [...prev.slice(-299), { time: ts(), msg, type }])
@@ -61,16 +62,19 @@ export default function WorkerPage() {
     logBottom.current?.scrollIntoView({ behavior: 'smooth' })
   }, [log])
 
-  // Auto-start when jobs load and there are pending jobs
+  // Auto-start when jobs load and there are pending jobs — uses ref to avoid TDZ
   useEffect(() => {
     if (!autoStarted.current && !isLoading && jobs && !running) {
       const pending = jobs.filter(j => j.status !== 'completed')
-      if (pending.length > 0) {
+      if (pending.length > 0 && startRef.current) {
         autoStarted.current = true
-        start()
+        startRef.current()
       }
     }
-  }, [jobs, isLoading, running, start])
+  }, [jobs, isLoading, running])
+
+  // Keep startRef in sync so the auto-start useEffect can call it without TDZ issues
+  useEffect(() => { startRef.current = start }, [start])
 
   const stop = useCallback(() => {
     stopRef.current = true
