@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import {
   Upload, Plus, Trash2, FileText, Loader2, CheckCircle2,
-  ClipboardPaste, FolderOpen, X, Terminal, Download,
+  ClipboardPaste, FolderOpen, X, Terminal, Download, RefreshCw,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -70,6 +70,7 @@ function ImportConsole({ logs }: { logs: LogEntry[] }) {
 }
 
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
+const meFetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
 
 const statusBadge: Record<string, string> = {
   pending:    'bg-muted text-muted-foreground',
@@ -205,6 +206,34 @@ function parsePastedEmails(text: string) {
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function ListsPage() {
   const { data: lists, isLoading } = useSWR('/api/lists', fetcher, { refreshInterval: 5000 })
+  const { data: me } = useSWR('/api/me', meFetcher)
+  const isAdmin = !!me?.is_admin
+
+  const [syncing, setSyncing] = useState(false)
+
+  const handleSyncCounters = async () => {
+    setSyncing(true)
+    try {
+      // Get completed jobs
+      const jobsRes = await fetch('/api/admin/verification-jobs?status=completed')
+      const jobsData = await jobsRes.json()
+      const jobs: { id: string; list_id: string }[] = jobsData.data ?? []
+      if (jobs.length === 0) { toast.info('No hay jobs completados para sincronizar'); return }
+
+      let synced = 0
+      for (const job of jobs) {
+        const res = await fetch('/api/admin/sync-list-counters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ listId: job.list_id, jobId: job.id }),
+        })
+        if (res.ok) synced++
+      }
+      toast.success(`${synced} lista(s) sincronizadas`)
+      mutate('/api/lists')
+    } catch { toast.error('Error al sincronizar') }
+    finally { setSyncing(false) }
+  }
 
   // Create list dialog
   const [createOpen, setCreateOpen] = useState(false)
@@ -448,9 +477,17 @@ export default function ListsPage() {
           <h1 className="text-2xl font-semibold text-foreground">Listas de email</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Crea listas e importa contactos desde archivos o texto.</p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="w-4 h-4 mr-1.5" /> Nueva lista
-        </Button>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Button variant="outline" size="sm" onClick={handleSyncCounters} disabled={syncing}>
+              {syncing ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1.5" />}
+              Sincronizar contadores
+            </Button>
+          )}
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="w-4 h-4 mr-1.5" /> Nueva lista
+          </Button>
+        </div>
       </div>
 
       {/* ── Lists ── */}
