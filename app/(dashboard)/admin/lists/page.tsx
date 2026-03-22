@@ -14,15 +14,15 @@ import { toast } from 'sonner'
 type AdminList = {
   id: string
   name: string
-  type: string
+  status: string
   valid_count: number
   invalid_count: number
   unverified_count: number
+  total_count: number
   verified_at: string | null
   created_at: string
   user_email: string
   user_name: string | null
-  total_contacts: number
   completed_job_id: string | null
 }
 
@@ -123,7 +123,7 @@ export default function AdminListsPage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold">{list.name}</span>
-                      <Badge variant="outline" className="text-xs">{list.type}</Badge>
+                      <Badge variant="outline" className="text-xs">{list.status}</Badge>
                       {needsSync(list) && (
                         <Badge variant="destructive" className="text-xs">Sin sincronizar</Badge>
                       )}
@@ -133,7 +133,7 @@ export default function AdminListsPage() {
                     </p>
                     <div className="flex items-center gap-4 mt-2 text-sm flex-wrap">
                       <span className="text-muted-foreground">
-                        {Number(list.total_contacts).toLocaleString('es-CL')} total
+                        {Number(list.total_count ?? 0).toLocaleString('es-CL')} total
                       </span>
                       <span className="flex items-center gap-1 text-green-600">
                         <CheckCircle2 className="w-3.5 h-3.5" />
