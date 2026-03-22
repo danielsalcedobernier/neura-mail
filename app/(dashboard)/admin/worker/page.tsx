@@ -108,15 +108,34 @@ export default function WorkerPage() {
         // All pending items were cache hits — still need to finalize the job via write-chunk
         addLog('Todos los emails resueltos desde caché. Finalizando job...', 'ok')
         if (needsFinalize) {
-          setPhase('Finalizando job...')
-          const finalRes = await fetch('/api/admin/worker/write-chunk', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jobId: job.id, offset: 0, limit: CHUNK_SIZE }),
-          })
-          const finalData = await finalRes.json()
-          if (finalData.data?.done) {
-            addLog('Job finalizado y contadores actualizados.', 'ok')
+          setPhase('Escribiendo resultados desde caché...')
+          addLog('Escribiendo resultados en chunks de 5.000...', 'info')
+          let offset = 0
+          let chunkCount = 0
+          while (!stopRef.current) {
+            const chunkRes = await fetch('/api/admin/worker/write-chunk', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ jobId: job.id, offset, limit: CHUNK_SIZE }),
+            })
+            const chunkData = await chunkRes.json()
+            if (!chunkRes.ok) {
+              addLog(`Error en chunk offset=${offset}: ${chunkData.error ?? chunkRes.status}`, 'error')
+              break
+            }
+            const { written: w = 0, done: chunkDone, batchDone } = chunkData.data ?? {}
+            chunkCount++
+            setWritten(prev => prev + w)
+            setCompleted(prev => prev + w)
+            const elapsed = (Date.now() - t0) / 1000
+            const rps = elapsed > 0 ? Math.round((written + w) / elapsed) : 0
+            setSpeed(rps)
+            addLog(`Chunk ${chunkCount} (offset=${offset}): ${w} filas escritas`, w > 0 ? 'ok' : 'info')
+            offset += CHUNK_SIZE
+            if (batchDone || chunkDone || w === 0) {
+              addLog(`Job finalizado. ${chunkCount} chunks procesados.`, 'ok')
+              break
+            }
           }
         }
         break
