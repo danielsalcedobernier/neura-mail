@@ -43,95 +43,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   if (contacts.length === 0) return error('No eligible recipients found for this campaign', 400)
 
-  // Filter global unsubscribes
-  const unsubscribed = await sql`SELECT email FROM unsubscribes WHERE user_id = ${session.id}`
-  const unsubSet = new Set(unsubscribed.map((u: { email: string }) => u.email.toLowerCase()))
-  const eligible = contacts.filter((c: { email: string }) => !unsubSet.has(c.email.toLowerCase()))
+  const smtpServers = await getActiveSmtpServers(session.id)
+  if (smtpServers.length === 0) return error('No active SMTP servers configured', 400)
 
-  if (eligible.length === 0) return error('All recipients are unsubscribed', 400)
-
-  // Build per-recipient smtp assignment map
-  let smtpAssignments: Map<number, string>  // index → smtp_server_id
-
-  if (useAllServers) {
-    const servers = await getActiveSmtpServers(session.id)
-    if (servers.length === 0) return error('No active SMTP servers with available capacity', 400)
-
-    const allocations = allocate(servers, eligible.length)
-    if (allocations.length === 0) return error('No SMTP capacity available right now', 400)
-
-    smtpAssignments = new Map()
-    let idx = 0
-    for (const alloc of allocations) {
-      for (let n = 0; n < alloc.count; n++) {
-        smtpAssignments.set(idx++, alloc.smtp_server_id)
-      }
-    }
-  } else {
-    // Single SMTP — assign to all
-    smtpAssignments = new Map(eligible.map((_, i) => [i, campaign.smtp_server_id as string]))
-  }
-
-  // Update campaign status
+  // Mark campaign as running — the seed cron will fill sending_queue in background batches
   await sql`
     UPDATE campaigns SET
-      status = 'running', started_at = NOW(),
-      total_recipients = ${eligible.length}, updated_at = NOW()
+      status = 'running',
+      started_at = NOW(),
+      updated_at = NOW(),
+      smtp_server_id = ${useAllServers ? null : (campaign.smtp_server_id ?? smtpServers[0].id)},
+      use_all_servers = ${useAllServers}
     WHERE id = ${id}
   `
 
-  // Fallback server for any recipient that didn't get assigned (e.g. allocate() returned fewer slots)
-  const fallbackSmtpId = smtpAssignments.get(0) ?? null
-  if (!fallbackSmtpId) return error('Failed to assign SMTP server to recipients', 500)
-
-  // Bulk-insert campaign_recipients using unnest — one query per batch, no per-row awaits
-  const BATCH = 500
-  for (let i = 0; i < eligible.length; i += BATCH) {
-    const batch = eligible.slice(i, i + BATCH)
-
-    const contactIds   = batch.map((c: { id: string }) => c.id)
-    const emails       = batch.map((c: { email: string }) => c.email)
-    const firstNames   = batch.map((c: { first_name: string | null }) => c.first_name ?? '')
-    const lastNames    = batch.map((c: { last_name: string | null }) => c.last_name ?? '')
-    const customFields = batch.map((c: { custom_fields: unknown }) => JSON.stringify(c.custom_fields || {}))
-    const smtpIds      = batch.map((_: unknown, j: number) => smtpAssignments.get(i + j) ?? fallbackSmtpId)
-
-    // Bulk insert recipients, get back ids in same order
-    const inserted = await sql`
-      INSERT INTO campaign_recipients
-        (campaign_id, contact_id, email, first_name, last_name, custom_fields, smtp_server_id)
-      SELECT
-        ${id},
-        unnest(${contactIds}::uuid[]),
-        unnest(${emails}::text[]),
-        unnest(${firstNames}::text[]),
-        unnest(${lastNames}::text[]),
-        unnest(${customFields}::jsonb[]),
-        unnest(${smtpIds}::uuid[])
-      ON CONFLICT DO NOTHING
-      RETURNING id, smtp_server_id
-    `
-
-    if (inserted.length === 0) continue
-
-    // Bulk insert sending_queue for all inserted recipients
-    const recIds       = inserted.map((r: { id: string }) => r.id)
-    const recSmtpIds   = inserted.map((r: { smtp_server_id: string }) => r.smtp_server_id)
-
-    await sql`
-      INSERT INTO sending_queue (campaign_id, recipient_id, smtp_server_id, scheduled_at)
-      SELECT
-        ${id},
-        unnest(${recIds}::uuid[]),
-        unnest(${recSmtpIds}::uuid[]),
-        NOW()
-      ON CONFLICT DO NOTHING
-    `
-  }
-
   return ok({
     started: true,
-    totalRecipients: eligible.length,
-    balancedAcrossServers: useAllServers ? smtpAssignments.size > 0 : false,
+    totalRecipients: contacts.length,
+    balancedAcrossServers: useAllServers,
   })
 }
