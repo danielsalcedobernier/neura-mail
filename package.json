@@ -9,12 +9,11 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "pg": "latest",
     "@aws-sdk/client-s3": "^3.685.0",
     "@aws-sdk/client-ses": "^3.685.0",
     "@aws-sdk/s3-request-presigner": "^3.685.0",
     "@hookform/resolvers": "^3.9.1",
-    "@neondatabase/serverless": "^0.10.4",
-    "@vercel/analytics": "1.6.1",
     "@radix-ui/react-accordion": "1.2.12",
     "@radix-ui/react-alert-dialog": "1.1.15",
     "@radix-ui/react-aspect-ratio": "1.1.8",
@@ -72,6 +71,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/pg": "latest",
     "@tailwindcss/postcss": "^4.2.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22",
