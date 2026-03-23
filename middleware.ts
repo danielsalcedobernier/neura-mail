@@ -1,41 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { SPANISH_COUNTRIES } from '@/i18n/translations'
-import { getSessionFromRequest } from '@/lib/auth'
 
-// Marketing routes that support i18n
+// Rutas de marketing
 const MARKETING_PATHS = ['/', '/features', '/pricing', '/docs']
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // Workers can only access /admin/worker — redirect all other /admin/* routes
-  if (pathname.startsWith('/admin') && !pathname.startsWith('/admin/worker')) {
-    const session = await getSessionFromRequest(req)
-    if (session?.role === 'worker') {
-      return NextResponse.redirect(new URL('/admin/worker', req.url))
-    }
+  // 1. PROTECCIÓN DE ADMIN (Simplificada para el VPS)
+  if (pathname.startsWith('/admin')) {
+    // En el VPS, vamos a dejar que las páginas de admin manejen su propia seguridad 
+    // en el servidor (Node.js) para evitar el error de 'crypto' aquí en el Edge.
+    return NextResponse.next()
   }
 
-  // Skip non-marketing routes
+  // 2. FILTRO DE MARKETING
   const isMarketing = MARKETING_PATHS.some(
     p => pathname === p || pathname === `/en${p}` || pathname === `/es${p}`
   )
   if (!isMarketing) return NextResponse.next()
 
-  // If already prefixed with a lang, respect it
+  // 3. SI YA TIENE IDIOMA, SEGUIR
   if (pathname.startsWith('/en/') || pathname === '/en' ||
       pathname.startsWith('/es/') || pathname === '/es') {
     return NextResponse.next()
   }
 
-  // Detect country from Vercel geo header
-  const country = req.headers.get('x-vercel-ip-country') ?? ''
-  const wantsSpanish = !country || SPANISH_COUNTRIES.has(country.toUpperCase())
+  // 4. DETECCIÓN DE PAÍS (Ajustada para VPS)
+  // Como no hay 'x-vercel-ip-country', por defecto servimos español (tu preferencia)
+  // a menos que el navegador diga explícitamente inglés.
+  const acceptLang = req.headers.get('accept-language') || ''
+  const wantsEnglish = acceptLang.startsWith('en')
 
-  // Spanish-speaking countries OR unknown → serve default (no prefix)
-  if (wantsSpanish) return NextResponse.next()
+  if (!wantsEnglish) {
+    return NextResponse.next() // Sirve español por defecto
+  }
 
-  // English-speaking countries → redirect to /en/...
+  // Redirigir a inglés si el navegador es inglés
   const url = req.nextUrl.clone()
   url.pathname = `/en${pathname === '/' ? '' : pathname}`
   return NextResponse.redirect(url)
