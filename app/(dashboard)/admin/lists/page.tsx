@@ -1,15 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import useSWR, { mutate } from 'swr'
 import {
-  FileText, Search, Loader2, RefreshCw, CheckCircle2, XCircle, HelpCircle,
+  FileText, Search, Loader2, RefreshCw, CheckCircle2, XCircle, HelpCircle, Download,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 type AdminList = {
   id: string
@@ -33,8 +37,64 @@ export default function AdminListsPage() {
   const key = `/api/admin/lists?search=${search}`
   const { data: lists, isLoading } = useSWR<AdminList[]>(key, fetcher, { refreshInterval: 10000 })
 
-  const [syncingId, setSyncingId] = useState<string | null>(null)
-  const [syncingAll, setSyncingAll] = useState(false)
+  const [syncingId, setSyncingId]     = useState<string | null>(null)
+  const [syncingAll, setSyncingAll]   = useState(false)
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
+
+  const downloadList = async (list: AdminList, validatedOnly: boolean) => {
+    setDownloadingId(list.id)
+    const CHUNK = 100_000
+    const MAX_PER_FILE = 1_000_000
+    toast.info(`Preparando descarga de "${list.name}"...`)
+
+    try {
+      // Get total count
+      const countRes = await fetch(`/api/admin/lists/export?action=count&listId=${list.id}&validatedOnly=${validatedOnly}`)
+      const countData = await countRes.json()
+      const total = Number(countData.data?.count ?? 0)
+      if (total === 0) { toast.error('No hay registros para descargar'); return }
+
+      let offset = 0
+      let fileIndex = 1
+      let rowsInFile: string[] = []
+      const header = 'email,first_name,last_name,status'
+
+      const flushFile = (rows: string[], idx: number) => {
+        const csv = [header, ...rows].join('\n')
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        const suffix = total > MAX_PER_FILE ? `_parte${idx}` : ''
+        a.href = url
+        a.download = `${list.name.replace(/\s+/g, '_')}${validatedOnly ? '_validos' : ''}${suffix}.csv`
+        a.click()
+        URL.revokeObjectURL(url)
+      }
+
+      while (offset < total) {
+        const res = await fetch(`/api/admin/lists/export?action=chunk&listId=${list.id}&offset=${offset}&limit=${CHUNK}&validatedOnly=${validatedOnly}`)
+        const data = await res.json()
+        const rows = (data.data?.rows ?? []) as Record<string, string>[]
+        if (rows.length === 0) break
+
+        for (const r of rows) {
+          rowsInFile.push(`${r.email},${r.first_name ?? ''},${r.last_name ?? ''},${r.status ?? ''}`)
+          if (rowsInFile.length >= MAX_PER_FILE) {
+            flushFile(rowsInFile, fileIndex++)
+            rowsInFile = []
+          }
+        }
+        offset += CHUNK
+      }
+
+      if (rowsInFile.length > 0) flushFile(rowsInFile, fileIndex)
+      toast.success(`Descarga completada: ${total.toLocaleString('es-CL')} registros`)
+    } catch {
+      toast.error('Error al descargar la lista')
+    } finally {
+      setDownloadingId(null)
+    }
+  }
 
   const syncList = async (list: AdminList) => {
     if (!list.completed_job_id) {
@@ -156,19 +216,44 @@ export default function AdminListsPage() {
                   </div>
                 </div>
 
-                {list.completed_job_id && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => syncList(list)}
-                    disabled={syncingId === list.id}
-                    className="shrink-0"
-                  >
-                    {syncingId === list.id
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : <RefreshCw className="w-3.5 h-3.5" />}
-                  </Button>
-                )}
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* Download dropdown */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" variant="outline" disabled={downloadingId === list.id}>
+                        {downloadingId === list.id
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <Download className="w-3.5 h-3.5" />}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuLabel className="text-xs">Descargar lista</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => downloadList(list, false)}>
+                        <FileText className="w-3.5 h-3.5 mr-2" />
+                        Todos los emails
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => downloadList(list, true)}>
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-2 text-green-600" />
+                        Solo validados (valid + catch-all)
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  {/* Sync button */}
+                  {list.completed_job_id && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => syncList(list)}
+                      disabled={syncingId === list.id}
+                    >
+                      {syncingId === list.id
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        : <RefreshCw className="w-3.5 h-3.5" />}
+                    </Button>
+                  )}
+                </div>
               </div>
             </Card>
           ))}

@@ -1,3 +1,5 @@
+export const maxDuration = 300
+
 import { NextRequest } from 'next/server'
 import { getSession } from '@/lib/auth'
 import sql from '@/lib/db'
@@ -82,29 +84,49 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const fallbackSmtpId = smtpAssignments.get(0) ?? null
   if (!fallbackSmtpId) return error('Failed to assign SMTP server to recipients', 500)
 
-  // Insert recipients and sending_queue in batches
-  const BATCH = 200
+  // Bulk-insert campaign_recipients using unnest — one query per batch, no per-row awaits
+  const BATCH = 500
   for (let i = 0; i < eligible.length; i += BATCH) {
     const batch = eligible.slice(i, i + BATCH)
-    for (let j = 0; j < batch.length; j++) {
-      const contact = batch[j]
-      const smtpId = smtpAssignments.get(i + j) ?? fallbackSmtpId
-      const recRows = await sql`
-        INSERT INTO campaign_recipients
-          (campaign_id, contact_id, email, first_name, last_name, custom_fields, smtp_server_id)
-        VALUES (${id}, ${contact.id}, ${contact.email}, ${contact.first_name}, ${contact.last_name},
-                ${JSON.stringify(contact.custom_fields || {})}, ${smtpId})
-        ON CONFLICT DO NOTHING
-        RETURNING id
-      `
-      if (recRows[0]) {
-        await sql`
-          INSERT INTO sending_queue (campaign_id, recipient_id, smtp_server_id, scheduled_at)
-          VALUES (${id}, ${recRows[0].id}, ${smtpId}, NOW())
-          ON CONFLICT DO NOTHING
-        `
-      }
-    }
+
+    const contactIds   = batch.map((c: { id: string }) => c.id)
+    const emails       = batch.map((c: { email: string }) => c.email)
+    const firstNames   = batch.map((c: { first_name: string | null }) => c.first_name ?? '')
+    const lastNames    = batch.map((c: { last_name: string | null }) => c.last_name ?? '')
+    const customFields = batch.map((c: { custom_fields: unknown }) => JSON.stringify(c.custom_fields || {}))
+    const smtpIds      = batch.map((_: unknown, j: number) => smtpAssignments.get(i + j) ?? fallbackSmtpId)
+
+    // Bulk insert recipients, get back ids in same order
+    const inserted = await sql`
+      INSERT INTO campaign_recipients
+        (campaign_id, contact_id, email, first_name, last_name, custom_fields, smtp_server_id)
+      SELECT
+        ${id},
+        unnest(${contactIds}::uuid[]),
+        unnest(${emails}::text[]),
+        unnest(${firstNames}::text[]),
+        unnest(${lastNames}::text[]),
+        unnest(${customFields}::jsonb[]),
+        unnest(${smtpIds}::uuid[])
+      ON CONFLICT DO NOTHING
+      RETURNING id, smtp_server_id
+    `
+
+    if (inserted.length === 0) continue
+
+    // Bulk insert sending_queue for all inserted recipients
+    const recIds       = inserted.map((r: { id: string }) => r.id)
+    const recSmtpIds   = inserted.map((r: { smtp_server_id: string }) => r.smtp_server_id)
+
+    await sql`
+      INSERT INTO sending_queue (campaign_id, recipient_id, smtp_server_id, scheduled_at)
+      SELECT
+        ${id},
+        unnest(${recIds}::uuid[]),
+        unnest(${recSmtpIds}::uuid[]),
+        NOW()
+      ON CONFLICT DO NOTHING
+    `
   }
 
   return ok({

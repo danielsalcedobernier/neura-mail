@@ -4,7 +4,7 @@ import { ok, forbidden, serverError } from '@/lib/api'
 import { submitBatch, pollBatch, storeBatchInCache } from '@/lib/mailsso'
 import sql from '@/lib/db'
 
-export const maxDuration = 30
+export const maxDuration = 300
 
 /**
  * Consumer endpoint used by the producer/consumer pipeline.
