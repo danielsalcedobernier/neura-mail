@@ -10,55 +10,57 @@ export async function GET(req: NextRequest) {
 
   try {
     const { searchParams } = new URL(req.url)
-    const action   = searchParams.get('action') ?? 'chunk'
-    const source   = searchParams.get('source') ?? 'cache'
-    const listId   = searchParams.get('listId') ?? null
-    const offset   = parseInt(searchParams.get('offset') ?? '0', 10)
-    const limit    = Math.min(parseInt(searchParams.get('limit') ?? '100000', 10), 100000)
+    const action        = searchParams.get('action') ?? 'chunk'
+    const source        = searchParams.get('source') ?? 'cache'
+    const listId        = searchParams.get('listId') ?? null
+    const offset        = parseInt(searchParams.get('offset') ?? '0', 10)
+    const limit         = Math.min(parseInt(searchParams.get('limit') ?? '100000', 10), 100000)
+    const validatedOnly = searchParams.get('validatedOnly') === 'true'
+
+    const VALID_STATUSES = ['valid', 'catch_all']
 
     if (action === 'count') {
       if (source === 'list' && listId) {
-        const rows = await sql`
-          SELECT COUNT(*) AS c FROM email_list_contacts
-          WHERE list_id = ${listId}
-        `
+        const rows = validatedOnly
+          ? await sql`SELECT COUNT(*) AS c FROM email_list_contacts WHERE list_id = ${listId} AND verification_status = ANY(${VALID_STATUSES})`
+          : await sql`SELECT COUNT(*) AS c FROM email_list_contacts WHERE list_id = ${listId}`
         return ok({ count: Number(rows[0].c) })
       } else {
-        const rows = await sql`SELECT COUNT(*) AS c FROM global_email_cache WHERE expires_at > NOW()`
+        const rows = validatedOnly
+          ? await sql`SELECT COUNT(*) AS c FROM global_email_cache WHERE expires_at > NOW() AND verification_status = ANY(${VALID_STATUSES})`
+          : await sql`SELECT COUNT(*) AS c FROM global_email_cache WHERE expires_at > NOW()`
         return ok({ count: Number(rows[0].c) })
       }
     }
 
     // action === 'chunk'
     if (source === 'list' && listId) {
-      const rows = await sql`
-        SELECT
-          elc.email,
-          elc.verification_status AS status,
-          elc.verification_score  AS score
-        FROM email_list_contacts elc
-        WHERE elc.list_id = ${listId}
-        ORDER BY elc.id
-        LIMIT ${limit} OFFSET ${offset}
-      `
+      const rows = validatedOnly
+        ? await sql`
+            SELECT elc.email, elc.verification_status AS status, elc.verification_score AS score
+            FROM email_list_contacts elc
+            WHERE elc.list_id = ${listId} AND elc.verification_status = ANY(${VALID_STATUSES})
+            ORDER BY elc.id LIMIT ${limit} OFFSET ${offset}`
+        : await sql`
+            SELECT elc.email, elc.verification_status AS status, elc.verification_score AS score
+            FROM email_list_contacts elc
+            WHERE elc.list_id = ${listId}
+            ORDER BY elc.id LIMIT ${limit} OFFSET ${offset}`
       return ok({ rows, hasMore: rows.length === limit })
     } else {
-      // Full cache export
-      const rows = await sql`
-        SELECT
-          email,
-          verification_status AS status,
-          verification_score  AS score,
-          is_disposable,
-          is_catch_all,
-          provider,
-          verified_at,
-          hit_count
-        FROM global_email_cache
-        WHERE expires_at > NOW()
-        ORDER BY email
-        LIMIT ${limit} OFFSET ${offset}
-      `
+      const rows = validatedOnly
+        ? await sql`
+            SELECT email, verification_status AS status, verification_score AS score,
+              is_disposable, is_catch_all, provider, verified_at, hit_count
+            FROM global_email_cache
+            WHERE expires_at > NOW() AND verification_status = ANY(${VALID_STATUSES})
+            ORDER BY email LIMIT ${limit} OFFSET ${offset}`
+        : await sql`
+            SELECT email, verification_status AS status, verification_score AS score,
+              is_disposable, is_catch_all, provider, verified_at, hit_count
+            FROM global_email_cache
+            WHERE expires_at > NOW()
+            ORDER BY email LIMIT ${limit} OFFSET ${offset}`
       return ok({ rows, hasMore: rows.length === limit })
     }
   } catch (e) {

@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
-import { Download, Search, Database, List, FileDown, Square } from 'lucide-react'
+import { Download, Search, Database, List, FileDown, Square, CheckCircle2, Filter } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import useSWR from 'swr'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data ?? d)
@@ -45,14 +47,15 @@ function downloadCSV(content: string, filename: string) {
 }
 
 export default function CacheExportPage() {
-  const [source, setSource]       = useState<'cache' | 'list'>('cache')
-  const [search, setSearch]       = useState('')
+  const [source, setSource]             = useState<'cache' | 'list'>('cache')
+  const [search, setSearch]             = useState('')
   const [selectedList, setSelectedList] = useState<EmailList | null>(null)
-  const [running, setRunning]     = useState(false)
-  const [log, setLog]             = useState<LogEntry[]>([])
-  const [totalRows, setTotalRows] = useState(0)
-  const [exported, setExported]   = useState(0)
-  const [fileCount, setFileCount] = useState(0)
+  const [validatedOnly, setValidatedOnly] = useState(false)
+  const [running, setRunning]           = useState(false)
+  const [log, setLog]                   = useState<LogEntry[]>([])
+  const [totalRows, setTotalRows]       = useState(0)
+  const [exported, setExported]         = useState(0)
+  const [fileCount, setFileCount]       = useState(0)
 
   const stopRef   = useRef(false)
   const logBottom = useRef<HTMLDivElement>(null)
@@ -96,6 +99,7 @@ export default function CacheExportPage() {
     const params = new URLSearchParams({
       action: 'count',
       source,
+      validatedOnly: String(validatedOnly),
       ...(source === 'list' && selectedList ? { listId: selectedList.id } : {}),
     })
 
@@ -145,6 +149,7 @@ export default function CacheExportPage() {
         source,
         offset: String(offset),
         limit: String(CHUNK_SIZE),
+        validatedOnly: String(validatedOnly),
         ...(source === 'list' && selectedList ? { listId: selectedList.id } : {}),
       })
 
@@ -187,7 +192,7 @@ export default function CacheExportPage() {
 
     setRunning(false)
     addLog(`Exportación completada. ${totalExported.toLocaleString('es-CL')} filas en ${fileCount + 1} archivo(s).`, 'ok')
-  }, [source, selectedList, addLog, fileCount])
+  }, [source, selectedList, validatedOnly, addLog, fileCount])
 
   const progress = totalRows > 0 ? Math.min(100, Math.round((exported / totalRows) * 100)) : 0
 
@@ -241,6 +246,30 @@ export default function CacheExportPage() {
             </div>
           </button>
         </div>
+
+        {/* Validated only filter */}
+        <div className="flex items-center justify-between pt-2 border-t border-border">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-muted-foreground" />
+            <Label htmlFor="validatedOnly" className="text-sm font-medium text-foreground cursor-pointer">
+              Solo emails validados
+            </Label>
+            <span className="text-xs text-muted-foreground">(valid + catch-all únicamente)</span>
+          </div>
+          <Switch
+            id="validatedOnly"
+            checked={validatedOnly}
+            onCheckedChange={setValidatedOnly}
+            disabled={running}
+          />
+        </div>
+
+        {validatedOnly && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
+            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+            Solo se exportarán emails con estado <strong>valid</strong> o <strong>catch_all</strong>.
+          </div>
+        )}
 
         {/* List picker */}
         {source === 'list' && (
