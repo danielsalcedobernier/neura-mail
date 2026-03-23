@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { Pool } from '@neondatabase/serverless'
+import { Pool } from 'pg'
 import { getSession } from '@/lib/auth'
 import sql from '@/lib/db'
 import { ok, error, unauthorized, notFound } from '@/lib/api'
