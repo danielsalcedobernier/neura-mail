@@ -4,13 +4,16 @@ if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is not set');
 }
 
-// Configuramos el pool de conexiones para tu VPS de Contabo
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // Al estar en el mismo VPS, no necesitas configuraciones complejas de SSL
 });
 
-// Mantenemos el nombre 'sql' para no romper el resto de tu app
-export const sql = pool;
+// Este pequeño "truco" permite que sigas usando la sintaxis sql`QUERY` 
+// que v0 generó, pero usando tu nuevo Postgres de Contabo.
+export const sql = async (strings: TemplateStringsArray, ...values: any[]) => {
+  const query = strings.reduce((acc, str, i) => acc + str + (i < values.length ? `$${i + 1}` : ""), "");
+  const result = await pool.query(query, values);
+  return result.rows;
+};
 
-export default pool;
+export default sql;
