@@ -9,6 +9,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/send-seed",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/cleanup_expired_cache",
       "schedule": "*/10 * * * *"
     },
