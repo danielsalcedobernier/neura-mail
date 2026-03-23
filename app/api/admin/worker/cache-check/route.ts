@@ -4,7 +4,7 @@ import { ok, forbidden, serverError } from '@/lib/api'
 import { checkCacheBulk } from '@/lib/mailsso'
 import sql from '@/lib/db'
 
-export const maxDuration = 30
+export const maxDuration = 300
 
 /**
  * Producer endpoint: fetches a batch of pending items, checks cache,
