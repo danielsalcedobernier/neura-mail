@@ -10,12 +10,12 @@ import { useState } from 'react'
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data)
 
 const CRON_DESCRIPTIONS: Record<string, string> = {
-  verify_seed: 'Populates verification_job_items from email_list_contacts for queued jobs',
-  verify_sweep: 'Checks verification_job_items against global_email_cache (10k/tick)',
-  verify_process: 'Sends batches to mails.so and writes results back to DB',
-  process_sending_queue: 'Sends individual emails for running campaigns (throttled by SMTP limits)',
-  maintenance: 'Removes expired sessions, cache entries, and stale locks',
-  sync_verification_progress: 'Updates processed/valid/invalid counters on running verification jobs',
+  verify_seed: 'Fase 0: siembra verification_job_items desde email_list_contacts para jobs en cola',
+  verify_sweep: 'Fase 1: barrido de caché global contra verification_job_items (10k/tick)',
+  verify_process: 'Fase 2: envía batches a mails.so y escribe resultados en DB',
+  process_sending_queue: 'Envía emails individuales para campañas activas (throttling por límites SMTP)',
+  maintenance: 'Elimina sesiones expiradas, entradas de caché obsoletas y locks huérfanos',
+  sync_verification_progress: 'Actualiza contadores procesados/válidos/inválidos en jobs de verificación activos',
 }
 
 const CRON_ENDPOINTS: Record<string, string> = {
@@ -49,12 +49,12 @@ export default function CronPage() {
     <div className="p-6 max-w-5xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-foreground">Cron Jobs</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Scheduled background jobs. All run automatically via Vercel Cron.</p>
+        <p className="text-sm text-muted-foreground mt-0.5">Jobs de fondo programados. Corren automáticamente via cron del servidor.</p>
       </div>
 
       <Card className="mb-4 bg-muted/30">
         <CardContent className="p-4 text-xs text-muted-foreground">
-          <p>Configure Vercel Cron in <code className="font-mono bg-muted px-1 rounded">vercel.json</code> to call <code className="font-mono bg-muted px-1 rounded">/api/cron/[job-name]</code> endpoints. You can also trigger jobs manually below for testing.</p>
+          <p>Configura tu cron del VPS para llamar a los endpoints <code className="font-mono bg-muted px-1 rounded">/api/cron/[nombre]</code> con el header <code className="font-mono bg-muted px-1 rounded">Authorization: Bearer CRON_SECRET</code>. También puedes dispararlos manualmente desde aquí.</p>
         </CardContent>
       </Card>
 
