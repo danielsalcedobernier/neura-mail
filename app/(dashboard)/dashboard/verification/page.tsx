@@ -124,7 +124,7 @@ function JobList({ jobs, onMutate }: { jobs: Record<string, unknown>[]; onMutate
                 </div>
               </div>
 
-              {(job.status === 'running' || job.status === 'paused') && (
+              {(['seeding', 'cache_sweeping', 'queued', 'running', 'paused'].includes(job.status as string)) && (
                 <Progress value={pct} className="h-1.5 mb-3" />
               )}
 

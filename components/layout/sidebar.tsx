@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   Mail, LayoutDashboard, CheckCircle, Send, Server, CreditCard,
   Settings, ChevronLeft, ChevronRight, LogOut, Users, Shield,
-  BarChart3, Database, Zap, Bell, FileText, Key, Package, Code2, Activity, Download,
+  BarChart3, Database, Zap, Bell, FileText, Key, Package, Code2, Download,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -46,19 +46,14 @@ const adminNav: NavItem[] = [
   { label: 'Exportar Caché', href: '/admin/cache-export', icon: Download },
   { label: 'Listas', href: '/admin/lists', icon: FileText },
   { label: 'Propagador', href: '/admin/propagate', icon: Zap },
-  { label: 'Worker Verif.', href: '/admin/worker', icon: Activity },
   { label: 'Campaigns', href: '/admin/campaigns', icon: Send },
   { label: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
   { label: 'Notifications', href: '/admin/notifications', icon: Bell },
   { label: 'Settings', href: '/admin/settings', icon: Settings },
 ]
 
-const workerNav: NavItem[] = [
-  { label: 'Worker Verif.', href: '/admin/worker', icon: Activity },
-]
-
 interface SidebarProps {
-  role: 'admin' | 'client' | 'worker'
+  role: 'admin' | 'client'
   userName?: string
   userEmail?: string
 }
@@ -67,7 +62,7 @@ export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
-  const nav = role === 'admin' ? adminNav : role === 'worker' ? workerNav : clientNav
+  const nav = role === 'admin' ? adminNav : clientNav
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -96,10 +91,9 @@ export default function Sidebar({ role, userName, userEmail }: SidebarProps) {
           <span className={cn(
             'text-xs font-medium px-2 py-0.5 rounded-full',
             role === 'admin' ? 'bg-primary/20 text-primary' :
-            role === 'worker' ? 'bg-orange-500/20 text-orange-600' :
             'bg-sidebar-accent text-sidebar-accent-foreground'
           )}>
-            {role === 'admin' ? 'Panel Admin' : role === 'worker' ? 'Worker' : 'Mi cuenta'}
+            {role === 'admin' ? 'Panel Admin' : 'Mi cuenta'}
           </span>
         </div>
       )}

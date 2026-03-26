@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
             FROM json_to_recordset(${itemsPayload}::json) AS v(id uuid, result text)
             WHERE verification_job_items.id = v.id
           `
-          const contactsPayload = JSON.stringify(chunk.map(item => ({ contact_id: item.id, status: item.status })))
+          const contactsPayload = JSON.stringify(chunk.map(item => ({ contact_id: item.contact_id, status: item.status })))
           await sql`
             UPDATE email_list_contacts SET verification_status=v.status, verified_at=NOW()
             FROM json_to_recordset(${contactsPayload}::json) AS v(contact_id uuid, status text)
@@ -198,13 +198,13 @@ export async function GET(request: NextRequest) {
 
       for (const job of activeJobs) {
         const items = await sql`
-          SELECT id, email FROM verification_job_items
+          SELECT id, contact_id, email FROM verification_job_items
           WHERE job_id = ${job.id} AND status = 'processing'
         `
         if (items.length === 0) continue
 
         const matched = items
-          .map((i: { id: string; email: string }) => ({ id: i.id, r: resultMap.get(i.email.toLowerCase()) }))
+          .map((i: { id: string; contact_id: string; email: string }) => ({ id: i.id, contact_id: i.contact_id, r: resultMap.get(i.email.toLowerCase()) }))
           .filter((x: { r: unknown }) => x.r)
 
         if (matched.length > 0) {
@@ -217,7 +217,7 @@ export async function GET(request: NextRequest) {
               FROM json_to_recordset(${payload}::json) AS v(id uuid, result text)
               WHERE verification_job_items.id = v.id
             `
-            const cpayload = JSON.stringify(chunk.map((x: { id: string; r: { status: string } }) => ({ contact_id: x.id, status: x.r.status })))
+            const cpayload = JSON.stringify(chunk.map((x: { contact_id: string; r: { status: string } }) => ({ contact_id: x.contact_id, status: x.r.status })))
             await sql`
               UPDATE email_list_contacts SET verification_status=v.status, verified_at=NOW()
               FROM json_to_recordset(${cpayload}::json) AS v(contact_id uuid, status text)
@@ -252,7 +252,7 @@ export async function GET(request: NextRequest) {
 
     for (const job of activeJobs) {
       const items = await sql`
-        SELECT id, email FROM verification_job_items
+        SELECT id, contact_id, email FROM verification_job_items
         WHERE job_id = ${job.id} AND status = 'pending'
         ORDER BY created_at ASC
         LIMIT ${BATCH_SIZE}
@@ -260,14 +260,14 @@ export async function GET(request: NextRequest) {
       if (items.length === 0) continue
 
       // Check cache in sub-batches to avoid giant IN queries
-      const cacheHits2: { id: string; email: string; status: string }[] = []
+      const cacheHits2: { id: string; contact_id: string; email: string; status: string }[] = []
       const needsApiSet = new Set<string>()
       for (let ci = 0; ci < items.length; ci += CACHE_CHUNK) {
         const sub = items.slice(ci, ci + CACHE_CHUNK)
         const subMap = await checkCacheBulk(sub.map((i: { email: string }) => i.email))
         for (const item of sub) {
           const hit = subMap.get((item.email as string).toLowerCase())
-          if (hit) cacheHits2.push({ id: item.id as string, email: item.email as string, status: hit.status })
+          if (hit) cacheHits2.push({ id: item.id as string, contact_id: item.contact_id as string, email: item.email as string, status: hit.status })
           else needsApiSet.add((item.email as string).toLowerCase())
         }
       }
@@ -283,7 +283,7 @@ export async function GET(request: NextRequest) {
             FROM json_to_recordset(${ip}::json) AS v(id uuid, result text)
             WHERE verification_job_items.id = v.id
           `
-          const cp = JSON.stringify(chunk.map(item => ({ contact_id: item.id, status: item.status })))
+          const cp = JSON.stringify(chunk.map(item => ({ contact_id: item.contact_id, status: item.status })))
           await sql`
             UPDATE email_list_contacts SET verification_status=v.status, verified_at=NOW()
             FROM json_to_recordset(${cp}::json) AS v(contact_id uuid, status text)

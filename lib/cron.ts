@@ -7,7 +7,7 @@ export async function acquireCronLock(jobName: string): Promise<boolean> {
       is_running = true,
       locked_at = NOW()
     WHERE name = ${jobName}
-      AND (is_running = false OR locked_at < NOW() - INTERVAL '2 minutes')
+      AND (is_running = false OR locked_at < NOW() - INTERVAL '10 minutes')
     RETURNING id
   `
   return result.length > 0
