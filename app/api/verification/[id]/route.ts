@@ -75,27 +75,31 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     SET status = 'cancelled'
     WHERE id = ${id} AND user_id = ${session.id}
       AND status IN ('queued', 'seeding', 'cache_sweeping', 'running', 'paused', 'failed')
-    RETURNING id
+    RETURNING id, credits_reserved, processed_count
   `
   if (!rows[0]) return notFound('Verification job')
 
-  // Refund only the emails that were never processed (pending + processing)
-  // These are the items that consumed a credit reservation but got no result
-  const pending = await sql`
-    SELECT COUNT(*) AS count FROM verification_job_items
-    WHERE job_id = ${id} AND status IN ('pending', 'processing')
-  `
-  const refund = Number(pending[0].count)
+  const job = rows[0]
+  const creditsReserved = Number(job.credits_reserved ?? 0)
+  const processedCount  = Number(job.processed_count ?? 0)
+
+  // Refund = credits reserved minus what was already processed
+  // This handles the seeding phase correctly: even if job_items don't exist yet,
+  // credits_reserved reflects the full amount charged upfront
+  const refund = Math.max(0, creditsReserved - processedCount)
+
   if (refund > 0) {
     await sql`
       UPDATE user_credits SET balance = balance + ${refund}, updated_at = NOW()
       WHERE user_id = ${session.id}
     `
-    // Mark those items as cancelled so counts stay accurate
-    await sql`
-      UPDATE verification_job_items SET status = 'cancelled'
-      WHERE job_id = ${id} AND status IN ('pending', 'processing')
-    `
   }
+
+  // Mark any seeded items as cancelled so counts stay accurate
+  await sql`
+    UPDATE verification_job_items SET status = 'cancelled'
+    WHERE job_id = ${id} AND status IN ('pending', 'processing')
+  `
+
   return ok({ cancelled: true, creditsRefunded: refund })
 }
