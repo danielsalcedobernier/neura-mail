@@ -27,10 +27,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const action = body.action as 'pause' | 'resume'
 
   if (action === 'pause') {
-    // Debug: check what job actually exists for this id
-    const existing = await sql`SELECT id, user_id, status FROM verification_jobs WHERE id = ${id}`
-    console.log('[v0] pause attempt - job id:', id, 'session user_id:', session.id, 'existing:', JSON.stringify(existing[0] ?? null))
-
     const rows = await sql`
       UPDATE verification_jobs SET status = 'paused'
       WHERE id = ${id} AND user_id = ${session.id}
@@ -38,7 +34,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       RETURNING id, status
     `
     if (!rows[0]) return notFound('Verification job')
-    console.log(`[verification PATCH] Paused job=${id}`)
     return ok({ paused: true, id })
   }
 
@@ -79,28 +74,32 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     UPDATE verification_jobs
     SET status = 'cancelled'
     WHERE id = ${id} AND user_id = ${session.id}
-      AND status IN ('queued', 'running', 'paused', 'failed')
-    RETURNING id
+      AND status IN ('queued', 'seeding', 'cache_sweeping', 'running', 'paused', 'failed')
+    RETURNING id, credits_reserved, processed_count
   `
   if (!rows[0]) return notFound('Verification job')
 
-  // Refund only the emails that were never processed (pending + processing)
-  // These are the items that consumed a credit reservation but got no result
-  const pending = await sql`
-    SELECT COUNT(*) AS count FROM verification_job_items
-    WHERE job_id = ${id} AND status IN ('pending', 'processing')
-  `
-  const refund = Number(pending[0].count)
+  const job = rows[0]
+  const creditsReserved = Number(job.credits_reserved ?? 0)
+  const processedCount  = Number(job.processed_count ?? 0)
+
+  // Refund = credits reserved minus what was already processed
+  // This handles the seeding phase correctly: even if job_items don't exist yet,
+  // credits_reserved reflects the full amount charged upfront
+  const refund = Math.max(0, creditsReserved - processedCount)
+
   if (refund > 0) {
     await sql`
       UPDATE user_credits SET balance = balance + ${refund}, updated_at = NOW()
       WHERE user_id = ${session.id}
     `
-    // Mark those items as cancelled so counts stay accurate
-    await sql`
-      UPDATE verification_job_items SET status = 'cancelled'
-      WHERE job_id = ${id} AND status IN ('pending', 'processing')
-    `
   }
+
+  // Mark any seeded items as cancelled so counts stay accurate
+  await sql`
+    UPDATE verification_job_items SET status = 'cancelled'
+    WHERE job_id = ${id} AND status IN ('pending', 'processing')
+  `
+
   return ok({ cancelled: true, creditsRefunded: refund })
 }

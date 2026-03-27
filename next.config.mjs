@@ -7,7 +7,10 @@ const nextConfig = {
     unoptimized: true,
   },
   serverExternalPackages: [],
-  // Default function timeout for all API routes — overridden per-route with export const maxDuration
+  // Stable build ID to avoid "Failed to find Server Action" errors after redeploy
+  generateBuildId: async () => {
+    return 'neuramail-stable-id'
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: '50mb',
