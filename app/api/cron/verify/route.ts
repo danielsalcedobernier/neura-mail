@@ -1,12 +1,10 @@
-export const maxDuration = 55
-
 import { NextRequest } from 'next/server'
 import sql from '@/lib/db'
 import { withCronLock } from '@/lib/cron'
 import { checkCacheBulk, storeBatchInCache, submitBatch, pollBatch } from '@/lib/mailsso'
 import { ok, error } from '@/lib/api'
 
-const BATCH_SIZE   = 25000   // max emails per mails.so call
+const BATCH_SIZE   = 5000    // max emails per mails.so call
 const SWEEP_CHUNK  = 10000   // emails per cache-sweep tick (keep query fast)
 const CACHE_CHUNK  = 2000    // rows per checkCacheBulk call (avoids giant IN queries)
 const SEED_CHUNK   = 500000  // contacts per seeding tick
