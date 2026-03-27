@@ -27,10 +27,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const action = body.action as 'pause' | 'resume'
 
   if (action === 'pause') {
-    // Debug: check what job actually exists for this id
-    const existing = await sql`SELECT id, user_id, status FROM verification_jobs WHERE id = ${id}`
-    console.log('[v0] pause attempt - job id:', id, 'session user_id:', session.id, 'existing:', JSON.stringify(existing[0] ?? null))
-
     const rows = await sql`
       UPDATE verification_jobs SET status = 'paused'
       WHERE id = ${id} AND user_id = ${session.id}
@@ -38,7 +34,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       RETURNING id, status
     `
     if (!rows[0]) return notFound('Verification job')
-    console.log(`[verification PATCH] Paused job=${id}`)
     return ok({ paused: true, id })
   }
 
@@ -79,7 +74,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     UPDATE verification_jobs
     SET status = 'cancelled'
     WHERE id = ${id} AND user_id = ${session.id}
-      AND status IN ('queued', 'running', 'paused', 'failed')
+      AND status IN ('queued', 'seeding', 'cache_sweeping', 'running', 'paused', 'failed')
     RETURNING id
   `
   if (!rows[0]) return notFound('Verification job')
